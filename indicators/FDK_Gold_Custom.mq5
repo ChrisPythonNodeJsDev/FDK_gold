@@ -79,6 +79,17 @@ input bool   ShowAsiaStats     = true;  // Taille de l'asiatique et compteur de 
 input int    AsiaAvgDays       = 10;    // Jours servant de moyenne de référence
 input double AsiaExpandedRatio = 1.0;   // Seuil (x moyenne) au-delà duquel l'asiatique est dite expansée
 
+//--- Hypothese des points numerotes, inspiree des fleches observees sur
+//--- l'indicateur de reference : dans une fenetre quotidienne on numerote
+//--- les swings, et la relation entre le #1 et le #2 fait "confirmation".
+//--- Mesuree sur 15 mois : perdante. Conservee comme outil de lecture et
+//--- pour verifier si l'interpretation elle-meme est correcte.
+input group "=== Points numérotés (fenêtre) ==="
+input bool   ShowConfirmPoints  = true;
+input int    ConfirmWindowStart = 1100;  // Début de fenêtre, HHMM heure Bénin
+input int    ConfirmWindowEnd   = 1330;  // Fin de fenêtre
+input int    ConfirmDepth       = 1;     // Bougies de confirmation de chaque côté
+
 input group "=== Niveaux du signal ==="
 input bool   FreezeLevels    = true;   // Figer SL/TP1/TP2 au moment du signal
 input bool   ShowSignalLines = true;   // Tracer les niveaux figés sur le graphique
@@ -97,6 +108,11 @@ int hATR_Zone = INVALID_HANDLE;      // ATR on the chart timeframe
 int hATR_ZoneHTF = INVALID_HANDLE;   // ATR on the higher timeframe
 datetime lastDrawnDay = 0;
 int      panelLineCount = 0;   // lines drawn on the previous panel render
+
+//--- Etat des points numerotes de la fenetre du jour
+int    gConfHighs = 0, gConfLows = 0;
+int    gConfState = 0;          // -1 baissier confirme, +1 haussier, 0 aucun
+string gConfLast  = "";
 
 //--- Cache de la moyenne asiatique (recalculee une fois par jour)
 datetime gAsiaAvgDay  = 0;
@@ -312,6 +328,7 @@ void UpdateAll()
 
       DrawSessionBoxes();
       DrawDayLabels();
+      BuildConfirmPoints();
       BuildZones();
       DrawZones();
      }
@@ -1114,6 +1131,104 @@ bool StructureLevels(int dir, double price, double &sl, double &tp1, double &tp2
   }
 
 //+------------------------------------------------------------------+
+// Numérote les swings de la fenêtre du jour et les marque d'une flèche.
+// Un swing n'est acquis que ConfirmDepth bougies après son sommet : les
+// flèches apparaissent donc avec ce retard, comme toute lecture de structure.
+void BuildConfirmPoints()
+  {
+   string keep[];
+   gConfHighs = 0; gConfLows = 0; gConfState = 0; gConfLast = "";
+
+   if(!ShowConfirmPoints)
+     {
+      PruneObjects(PFX"cp_", keep);
+      return;
+     }
+
+   datetime day  = BeninDayStart();
+   datetime from = day + HHMMToSeconds(ConfirmWindowStart);
+   datetime to   = day + HHMMToSeconds(ConfirmWindowEnd);
+   if(to <= from || TimeCurrent() < from)
+     {
+      PruneObjects(PFX"cp_", keep);
+      return;
+     }
+   if(to > TimeCurrent())
+      to = TimeCurrent();
+
+   int bFrom = iBarShift(_Symbol, PERIOD_CURRENT, from, false);
+   int bTo   = iBarShift(_Symbol, PERIOD_CURRENT, to,   false);
+   if(bFrom < 0 || bTo < 0)
+     {
+      PruneObjects(PFX"cp_", keep);
+      return;
+     }
+
+   double firstHigh = 0.0, lastHigh = 0.0, firstLow = 0.0, lastLow = 0.0;
+
+   for(int i = MathMax(bFrom, bTo); i >= MathMin(bFrom, bTo); i--)
+     {
+      if(i < ConfirmDepth)
+         continue;                       // sommet pas encore confirmé
+      double h = iHigh(_Symbol, PERIOD_CURRENT, i);
+      double l = iLow (_Symbol, PERIOD_CURRENT, i);
+      bool isH = true, isL = true;
+      for(int k = 1; k <= ConfirmDepth; k++)
+        {
+         if(h <= iHigh(_Symbol, PERIOD_CURRENT, i-k) || h <= iHigh(_Symbol, PERIOD_CURRENT, i+k)) isH = false;
+         if(l >= iLow (_Symbol, PERIOD_CURRENT, i-k) || l >= iLow (_Symbol, PERIOD_CURRENT, i+k)) isL = false;
+        }
+      if(!isH && !isL)
+         continue;
+
+      datetime t = iTime(_Symbol, PERIOD_CURRENT, i);
+      if(isH)
+        {
+         gConfHighs++;
+         if(gConfHighs == 1) firstHigh = h;
+         lastHigh = h;
+         string nm = StringFormat("%scp_H%d_%d", PFX, gConfHighs, (int)t);
+         if(ObjectFind(0, nm) < 0)
+            ObjectCreate(0, nm, OBJ_ARROW, 0, t, h);
+         else
+            ObjectMove(0, nm, 0, t, h);
+         ObjectSetInteger(0, nm, OBJPROP_ARROWCODE, 242);      // flèche bas
+         ObjectSetInteger(0, nm, OBJPROP_COLOR, clrRed);
+         ObjectSetInteger(0, nm, OBJPROP_WIDTH, 2);
+         ObjectSetInteger(0, nm, OBJPROP_ANCHOR, ANCHOR_BOTTOM);
+         ObjectSetInteger(0, nm, OBJPROP_SELECTABLE, false);
+         ObjectSetString (0, nm, OBJPROP_TOOLTIP, StringFormat("HIGH #%d", gConfHighs));
+         KeepName(keep, nm);
+        }
+      if(isL)
+        {
+         gConfLows++;
+         if(gConfLows == 1) firstLow = l;
+         lastLow = l;
+         string nm = StringFormat("%scp_L%d_%d", PFX, gConfLows, (int)t);
+         if(ObjectFind(0, nm) < 0)
+            ObjectCreate(0, nm, OBJ_ARROW, 0, t, l);
+         else
+            ObjectMove(0, nm, 0, t, l);
+         ObjectSetInteger(0, nm, OBJPROP_ARROWCODE, 241);      // flèche haut
+         ObjectSetInteger(0, nm, OBJPROP_COLOR, clrLime);
+         ObjectSetInteger(0, nm, OBJPROP_WIDTH, 2);
+         ObjectSetInteger(0, nm, OBJPROP_ANCHOR, ANCHOR_TOP);
+         ObjectSetInteger(0, nm, OBJPROP_SELECTABLE, false);
+         ObjectSetString (0, nm, OBJPROP_TOOLTIP, StringFormat("LOW #%d", gConfLows));
+         KeepName(keep, nm);
+        }
+     }
+
+   if(gConfHighs >= 2 && lastHigh < firstHigh)
+     { gConfState = -1; gConfLast = StringFormat("HIGH #%d < #1", gConfHighs); }
+   else if(gConfLows >= 2 && lastLow > firstLow)
+     { gConfState = +1; gConfLast = StringFormat("LOW #%d > #1", gConfLows); }
+
+   PruneObjects(PFX"cp_", keep);
+  }
+
+//+------------------------------------------------------------------+
 string BiasText(int bias)
   {
    if(bias > 0) return("HAUSSIER");
@@ -1289,6 +1404,18 @@ void UpdatePanel()
    SetPanelLine(line++, StringFormat("RSI(%d): %.1f  ATR: %s (%d p)",
                 RSIPeriod, rsiBuf[0], DoubleToString(atr, digits),
                 (int)MathRound(atr / PipSize())), clrSilver);
+
+   if(ShowConfirmPoints && (gConfHighs > 0 || gConfLows > 0))
+     {
+      SetPanelLine(line++, StringFormat("Fenêtre %04d-%04d: %dH / %dB",
+                   ConfirmWindowStart, ConfirmWindowEnd, gConfHighs, gConfLows), clrSilver);
+      if(gConfState != 0)
+         SetPanelLine(line++, StringFormat("  %s → %s", gConfLast,
+                      gConfState < 0 ? "BAISSIER" : "HAUSSIER"),
+                      gConfState < 0 ? BearishColor : BullishColor);
+      else
+         SetPanelLine(line++, "  pas de confirmation", clrGray);
+     }
 
    if(ShowAsiaStats && asiaValid)
      {

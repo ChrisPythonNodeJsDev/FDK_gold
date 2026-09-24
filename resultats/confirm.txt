@@ -1,0 +1,22 @@
+Confirmation par points numerotes — fenetre 11h00-13h30 Benin
+A = sortie TP1 | B = vise TP2 | C = moitie TP1 + point mort
+|t| < 2 => indistinguable de zero
+
+-- swings window, depth 1
+    in-sample                n=135  TP1   57%  A +0.034(t+0.3)  B +0.087(t+0.7)  C +0.068(t+0.6)
+    out-of-sample            n=66   TP1   59%  A -0.090(t-0.8)  B -0.212(t-1.7)  C -0.123(t-1.0)
+-- swings window, depth 2
+    in-sample                n=53   TP1   40%  A -0.316(t-2.3)  B -0.385(t-2.8)  C -0.305(t-2.2)
+    out-of-sample            n=16   TP1   44%  A -0.358(t-2.0)  B -0.562(t-3.0)  C -0.464(t-2.7)
+-- swings window, depth 3
+    in-sample                n=9    TP1   44%  A +0.204(t+0.4)  B +0.196(t+0.4)  C +0.222(t+0.4)
+    out-of-sample            n=4    TP1   50%  A -0.264(t-0.6)  B -0.337(t-0.5)  C -0.323(t-0.6)
+-- swings day, depth 1
+    in-sample                n=144  TP1   58%  A +0.095(t+1.0)  B +0.123(t+0.9)  C +0.123(t+1.1)
+    out-of-sample            n=71   TP1   62%  A -0.106(t-1.1)  B -0.257(t-2.1)  C -0.180(t-1.6)
+-- swings day, depth 2
+    in-sample                n=89   TP1   52%  A -0.109(t-1.1)  B -0.111(t-0.8)  C -0.070(t-0.6)
+    out-of-sample            n=36   TP1   53%  A -0.229(t-1.7)  B -0.486(t-3.0)  C -0.383(t-2.8)
+-- swings day, depth 3
+    in-sample                n=44   TP1   52%  A +0.016(t+0.1)  B +0.094(t+0.4)  C +0.046(t+0.2)
+    out-of-sample            n=22   TP1   45%  A -0.262(t-1.4)  B +0.018(t+0.0)  C -0.148(t-0.6)
