@@ -1,0 +1,85 @@
+# Contexte du projet
+
+Indicateur MetaTrader 5 pour XAUUSD (or) sur compte démo Deriv, plus
+l'outillage de backtest servant à mesurer ce qu'il vaut.
+
+L'utilisateur est basé au Bénin (WAT, UTC+1) et échange en français.
+
+## À savoir avant de proposer quoi que ce soit
+
+**La règle d'entrée n'a aucun avantage statistique démontré.** Mesurée sur
+15 mois de XAUUSD Deriv réel (30 000 bougies M15, 193 trades) : entre
+−0.021 et −0.098 R par trade selon la gestion. Le balayage de paramètres
+montre une espérance nulle dès que l'échantillon dépasse 400 trades.
+
+Deux pistes ont été testées puis écartées :
+- entrée sur retour en zone offre/demande : +0.062 R, t = 1.11, non
+  significatif (423 trades)
+- confirmation par points numérotés dans une fenêtre : perdante, tous les
+  résultats hors échantillon négatifs, jusqu'à t = −3.0
+
+La règle SL/TP par structure a un rapport gain/risque médian de **0.58** :
+il faudrait 63 % de réussite pour l'équilibre, on en observe 52 à 62 %.
+
+Ne pas présenter cet indicateur comme un générateur de signaux validé.
+Ne pas donner de conseil de position, de niveau d'entrée ou de
+dimensionnement : l'utilisateur trade en démo et décide seul.
+
+## Méthode attendue
+
+Toute hypothèse se mesure avant d'être recommandée : calibration sur les
+10 premiers mois, validation sur les 5 derniers jamais regardés. Un
+résultat sur un seul échantillon ou sans test de robustesse ne vaut rien
+ici — plusieurs configurations séduisantes se sont révélées être du bruit
+de petit échantillon.
+
+## Où sont les choses
+
+L'installation MT5 est sur la **machine locale** de l'utilisateur, pas sur
+ce serveur :
+
+    ~/.mt5/drive_c/Program Files/MetaTrader 5/
+
+Les sources de ce dépôt y sont liées par liens symboliques
+(`MQL5/Indicators`, `MQL5/Scripts`) : éditer ici suffit, il reste à
+recompiler.
+
+- `indicators/FDK_Gold_Custom.mq5` — l'indicateur
+- `scripts/FDK_ExportData.mq5` — export des bougies vers CSV
+- `backtest/` — bt2 (backtest), sweep (robustesse), zones, confirm, v3_stats
+- `resultats/` — sorties brutes des mesures
+
+## Compilation
+
+MetaEditor tourne sous Wine. Deux pièges rencontrés :
+
+- le chemin doit être **relatif** à la racine de l'installation MT5, sinon
+  la compilation échoue en silence
+- Wine ayant été mis à jour pendant que MT5 tournait, le `wineserver` en
+  mémoire ne correspond plus au client ; on compile alors dans un préfixe
+  isolé temporaire plutôt que de fermer le terminal de l'utilisateur
+
+```
+cd "<racine MT5>"
+WINEPREFIX=<prefixe_isole> wine MetaEditor64.exe \
+  /compile:"MQL5\Indicators\FDK_Gold_Custom.mq5" /log
+iconv -f UTF-16LE -t UTF-8 MQL5/Indicators/FDK_Gold_Custom.log
+```
+
+Le log est en UTF-16. Toujours vérifier « 0 errors, 0 warnings ».
+
+## Pièges de l'environnement
+
+- MT5 interrompt un indicateur trop lent (`indicator is too slow`) et le
+  graphique se fige : rien qui lise des barres ne doit tourner à chaque
+  tick. Le contexte est mis en cache une fois par bougie dans
+  `RefreshContext`.
+- La police Wingdings est absente du préfixe Wine : `OBJ_ARROW` s'affiche
+  en carrés vides. Utiliser `OBJ_TEXT`.
+- Le serveur Deriv est en UTC, le Bénin en UTC+1 ; le décalage est
+  détecté automatiquement via `TimeGMT`.
+- Un pip sur cet or vaut 0.10, pas 0.01.
+- Des coupures réseau côté Deriv figent le prix : vérifier
+  `logs/<date>.log` du terminal avant d'incriminer le code.
+- Le disque de la machine locale est proche de la saturation ; nettoyer
+  les préfixes Wine temporaires après usage.
