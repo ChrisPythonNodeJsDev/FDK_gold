@@ -75,6 +75,11 @@ input bool   ShowAsiaStats     = true;  // Taille de l'asiatique et compteur de 
 input int    AsiaAvgDays       = 10;    // Jours servant de moyenne de référence
 input double AsiaExpandedRatio = 1.0;   // Seuil (x moyenne) au-delà duquel l'asiatique est dite expansée
 
+input group "=== Niveaux du signal ==="
+input bool   FreezeLevels    = true;   // Figer SL/TP1/TP2 au moment du signal
+input double SL_ATR_Mult     = 1.0;    // Stop-loss en multiples d'ATR
+input bool   ShowSignalLines = true;   // Tracer les niveaux figés sur le graphique
+
 input group "=== Journal des signaux ==="
 input bool   LogSignals  = true;   // Enregistrer chaque ENTREE AUTORISEE dans un CSV
 input string LogFileName = "";     // Vide = FDK_signaux_<symbole>.csv
@@ -93,6 +98,14 @@ int      panelLineCount = 0;   // lines drawn on the previous panel render
 //--- Cache de la moyenne asiatique (recalculee une fois par jour)
 datetime gAsiaAvgDay  = 0;
 double   gAsiaAvgPips = 0.0;
+
+//--- Niveaux figes au moment du signal. Sans ca, TP et SL se recalculent
+//--- depuis le prix courant a chaque tick et ne designent aucun objectif
+//--- stable : inutilisable pour poser un ordre.
+datetime gSigTime  = 0;
+int      gSigDir   = 0;
+double   gSigPrice = 0.0, gSigATR = 0.0;
+double   gSigTP1   = 0.0, gSigTP2 = 0.0, gSigSL = 0.0;
 
 //--- Signal journal state
 datetime gLastLoggedBar = 0;   // bar already written, guards against duplicates
@@ -207,8 +220,9 @@ datetime InitLog()
          return(0);
         }
       FileWrite(hw, "bar_time_serveur", "tick_time_serveur", "heure_benin",
-                "symbole", "periode", "sens", "prix", "atr", "tp1", "tp2",
-                "session", "biais_m15", "biais_h4", "rsi");
+                "symbole", "periode", "sens", "prix", "atr", "tp1", "tp2", "sl",
+                "session", "biais_m15", "biais_h4", "rsi",
+                "asie_pips", "asie_ratio", "sweeps_haut", "sweeps_bas");
       FileClose(hw);
       PrintFormat("FDK: journal cree -> MQL5/Files/%s", f);
       return(0);
@@ -236,8 +250,9 @@ datetime InitLog()
 
 //+------------------------------------------------------------------+
 void LogSignal(datetime barTime, int dir, double price, double atr,
-               double tp1, double tp2, string session,
-               int bM15, int bH4, double rsi)
+               double tp1, double tp2, double sl, string session,
+               int bM15, int bH4, double rsi,
+               double asiaPips, double asiaRatio, int swUp, int swDn)
   {
    string f = LogPath();
    int h = FileOpen(f, FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI, ',');
@@ -260,10 +275,15 @@ void LogSignal(datetime barTime, int dir, double price, double atr,
              DoubleToString(atr,   dg),
              DoubleToString(tp1,   dg),
              DoubleToString(tp2,   dg),
+             DoubleToString(sl,    dg),
              session,
              IntegerToString(bM15),
              IntegerToString(bH4),
-             DoubleToString(rsi, 1));
+             DoubleToString(rsi, 1),
+             DoubleToString(asiaPips,  0),
+             DoubleToString(asiaRatio, 3),
+             IntegerToString(swUp),
+             IntegerToString(swDn));
    FileClose(h);
 
    gLastLoggedBar = barTime;
@@ -988,6 +1008,47 @@ int CountSweeps(datetime from, datetime to, double hiLevel, double loLevel,
   }
 
 //+------------------------------------------------------------------+
+// Trace SL / TP1 / TP2 sur le graphique. Les niveaux figes sont pleins,
+// la projection vivante est pointillee : on voit d'un coup d'oeil si
+// l'objectif affiche est un point fixe ou une valeur qui bouge.
+void DrawSignalLines(bool frozen, double tp1, double tp2, double sl)
+  {
+   string keep[];
+   if(!ShowSignalLines)
+     {
+      PruneObjects(PFX"lvl_", keep);
+      return;
+     }
+
+   ENUM_LINE_STYLE st = frozen ? STYLE_SOLID : STYLE_DOT;
+   string suffix = frozen ? "" : " (proj.)";
+
+   string names[3] = {PFX"lvl_sl", PFX"lvl_tp1", PFX"lvl_tp2"};
+   double vals[3];
+   vals[0] = sl; vals[1] = tp1; vals[2] = tp2;
+   color  cols[3] = {clrTomato, clrLightGreen, clrLime};
+   string labs[3] = {"SL", "TP1", "TP2"};
+
+   for(int i = 0; i < 3; i++)
+     {
+      if(vals[i] <= 0.0)
+         continue;
+      if(ObjectFind(0, names[i]) < 0)
+         ObjectCreate(0, names[i], OBJ_HLINE, 0, 0, vals[i]);
+      else
+         ObjectMove(0, names[i], 0, 0, vals[i]);
+      ObjectSetInteger(0, names[i], OBJPROP_COLOR, cols[i]);
+      ObjectSetInteger(0, names[i], OBJPROP_STYLE, st);
+      ObjectSetInteger(0, names[i], OBJPROP_WIDTH, 1);
+      ObjectSetInteger(0, names[i], OBJPROP_BACK, true);
+      ObjectSetInteger(0, names[i], OBJPROP_SELECTABLE, false);
+      ObjectSetString (0, names[i], OBJPROP_TEXT, labs[i] + suffix);
+      KeepName(keep, names[i]);
+     }
+   PruneObjects(PFX"lvl_", keep);
+  }
+
+//+------------------------------------------------------------------+
 string BiasText(int bias)
   {
    if(bias > 0) return("HAUSSIER");
@@ -1082,30 +1143,70 @@ void UpdatePanel()
    double price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
    double atr = atrBuf[0];
-   double tp1, tp2;
    int dir = (biasM15 != 0) ? biasM15 : biasH4;
-   if(dir >= 0)
+   int sgn = (dir >= 0) ? 1 : -1;
+
+   // Projection vivante depuis le prix courant : ce qui s'affiche tant
+   // qu'aucun signal n'a fige de niveaux.
+   double liveTP1 = price + sgn * atr * TP1_ATR_Mult;
+   double liveTP2 = price + sgn * atr * TP2_ATR_Mult;
+   double liveSL  = price - sgn * atr * SL_ATR_Mult;
+
+   // --- contexte asiatique et sweeps, calcules ici pour servir a la fois
+   // --- au journal et a l'affichage
+   datetime dayStart  = BeninDayStart();
+   bool   asiaValid   = false, asiaDone = false;
+   double asiaHi = 0.0, asiaLo = 0.0, asiaPips = 0.0, asiaRatio = 0.0;
+   int    swUp = 0, swDn = 0, swTot = 0;
+
+   if(ShowAsiaStats)
      {
-      tp1 = price + atr * TP1_ATR_Mult;
-      tp2 = price + atr * TP2_ATR_Mult;
-     }
-   else
-     {
-      tp1 = price - atr * TP1_ATR_Mult;
-      tp2 = price - atr * TP2_ATR_Mult;
+      asiaDone  = (SecondsOfDay(BeninTime()) >= HHMMToSeconds(AsiaEnd));
+      asiaValid = (AsiaRange(dayStart, asiaHi, asiaLo) && asiaHi > asiaLo);
+      if(asiaValid)
+        {
+         asiaPips   = (asiaHi - asiaLo) / PipSize();
+         double avg = AsiaAvgCached();
+         asiaRatio  = (avg > 0.0 ? asiaPips / avg : 0.0);
+         if(asiaDone)
+            swTot = CountSweeps(dayStart + HHMMToSeconds(AsiaEnd), TimeCurrent(),
+                                asiaHi, asiaLo, swUp, swDn);
+        }
      }
 
    // Journal: one line per transition INTO the allowed state, at most one per
    // bar. gLastLoggedBar also survives a reload, so re-attaching the indicator
    // while a signal still stands does not duplicate it.
-   if(LogSignals && entryAllowed && gPrevSignalDir != dir)
+   if(entryAllowed && gPrevSignalDir != dir)
      {
       datetime barTime = iTime(_Symbol, PERIOD_CURRENT, 0);
       if(barTime > gLastLoggedBar)
-         LogSignal(barTime, dir, price, atr, tp1, tp2,
-                   activeSession, biasM15, biasH4, rsiBuf[0]);
+        {
+         // Les niveaux sont fixes une fois pour toutes ici, au prix du signal.
+         gSigTime  = barTime;
+         gSigDir   = dir;
+         gSigPrice = price;
+         gSigATR   = atr;
+         gSigTP1   = liveTP1;
+         gSigTP2   = liveTP2;
+         gSigSL    = liveSL;
+
+         if(LogSignals)
+            LogSignal(barTime, dir, price, atr, gSigTP1, gSigTP2, gSigSL,
+                      activeSession, biasM15, biasH4, rsiBuf[0],
+                      asiaPips, asiaRatio, swUp, swDn);
+        }
      }
    gPrevSignalDir = entryAllowed ? dir : 0;
+
+   // Ce qui est affiche : les niveaux figes si un signal en a produit,
+   // sinon la projection vivante.
+   bool   frozen = (FreezeLevels && gSigTime > 0);
+   double tp1 = frozen ? gSigTP1 : liveTP1;
+   double tp2 = frozen ? gSigTP2 : liveTP2;
+   double sl  = frozen ? gSigSL  : liveSL;
+
+   DrawSignalLines(frozen, tp1, tp2, sl);
 
    double rangeHi, rangeLo;
    datetime beninNow = BeninTime();
@@ -1125,41 +1226,26 @@ void UpdatePanel()
                 RSIPeriod, rsiBuf[0], DoubleToString(atr, digits),
                 (int)MathRound(atr / PipSize())), clrSilver);
 
-   if(ShowAsiaStats)
+   if(ShowAsiaStats && asiaValid)
      {
-      datetime dayStart = BeninDayStart();
-      double   aHi, aLo;
-      bool     asiaDone = (SecondsOfDay(BeninTime()) >= HHMMToSeconds(AsiaEnd));
+      if(asiaRatio > 0.0)
+         SetPanelLine(line++, StringFormat("Asie: %d pips  (x%.2f moy %dj)",
+                      (int)MathRound(asiaPips), asiaRatio, AsiaAvgDays), clrSilver);
+      else
+         SetPanelLine(line++, StringFormat("Asie: %d pips", (int)MathRound(asiaPips)), clrSilver);
 
-      if(AsiaRange(dayStart, aHi, aLo) && aHi > aLo)
-        {
-         double pips = (aHi - aLo) / PipSize();
-         double avg  = AsiaAvgCached();
+      if(!asiaDone)
+         SetPanelLine(line++, "  asiatique en cours", clrGray);
+      else if(asiaRatio >= AsiaExpandedRatio && asiaRatio > 0.0)
+         SetPanelLine(line++, "  EXPANSEE", clrOrange);
+      else if(asiaRatio > 0.0)
+         SetPanelLine(line++, "  NON EXPANSEE", clrSilver);
 
-         if(avg > 0.0)
-            SetPanelLine(line++, StringFormat("Asie: %d pips  (x%.2f moy %dj)",
-                         (int)MathRound(pips), pips / avg, AsiaAvgDays), clrSilver);
-         else
-            SetPanelLine(line++, StringFormat("Asie: %d pips", (int)MathRound(pips)), clrSilver);
-
-         if(!asiaDone)
-            SetPanelLine(line++, "  asiatique en cours", clrGray);
-         else if(avg > 0.0 && pips >= avg * AsiaExpandedRatio)
-            SetPanelLine(line++, "  EXPANSEE", clrOrange);
-         else if(avg > 0.0)
-            SetPanelLine(line++, "  NON EXPANSEE", clrSilver);
-
-         if(asiaDone)
-           {
-            int up, dn;
-            int tot = CountSweeps(dayStart + HHMMToSeconds(AsiaEnd), TimeCurrent(),
-                                  aHi, aLo, up, dn);
-            SetPanelLine(line++, StringFormat("Sweeps: %d  (haut %d / bas %d)", tot, up, dn),
-                         tot > 0 ? clrYellow : clrSilver);
-           }
-         else
-            SetPanelLine(line++, "Sweeps: -", clrGray);
-        }
+      if(asiaDone)
+         SetPanelLine(line++, StringFormat("Sweeps: %d  (haut %d / bas %d)", swTot, swUp, swDn),
+                      swTot > 0 ? clrYellow : clrSilver);
+      else
+         SetPanelLine(line++, "Sweeps: -", clrGray);
      }
 
    if(ShowZones)
@@ -1186,6 +1272,13 @@ void UpdatePanel()
      }
 
    SetPanelLine(line++, " ", clrSilver);
+   if(frozen)
+      SetPanelLine(line++, StringFormat("Niveaux figés — signal %s",
+                   TimeToString(gSigTime, TIME_MINUTES)), clrAqua);
+   else
+      SetPanelLine(line++, "Projection (aucun signal figé)", clrGray);
+
+   SetPanelLine(line++, StringFormat("SL  (x%.1f ATR): %s", SL_ATR_Mult, DoubleToString(sl,  digits)), clrTomato);
    SetPanelLine(line++, StringFormat("TP1 (x%.1f ATR): %s", TP1_ATR_Mult, DoubleToString(tp1, digits)), clrSilver);
    SetPanelLine(line++, StringFormat("TP2 (x%.1f ATR): %s", TP2_ATR_Mult, DoubleToString(tp2, digits)), clrSilver);
    SetPanelLine(line++, entryAllowed ? (">>> ENTREE AUTORISEE " + (dir > 0 ? "LONG" : "SHORT") + " <<<") : "En attente...",
