@@ -90,6 +90,7 @@ input bool   ShowConfirmPoints  = true;
 input int    ConfirmWindowStart = 1100;  // Début de fenêtre, HHMM heure Bénin
 input int    ConfirmWindowEnd   = 1330;  // Fin de fenêtre
 input int    ConfirmDepth       = 1;     // Bougies de confirmation de chaque côté
+input int    ConfirmMaxPoints   = 4;     // Nb max de points marqués par côté
 
 input group "=== Niveaux du signal ==="
 input bool   FreezeLevels    = true;   // Figer SL/TP1/TP2 au moment du signal
@@ -1176,7 +1177,28 @@ bool StructureLevels(int dir, double price, double &sl, double &tp1, double &tp2
   }
 
 //+------------------------------------------------------------------+
-// Numérote les swings de la fenêtre du jour et les marque d'une flèche.
+// Marqueur d'un point numéroté. On écrit du texte plutôt qu'une flèche :
+// OBJ_ARROW dépend de la police Wingdings, absente de ce préfixe Wine, et
+// s'affichait donc en petits carrés vides.
+void MarkPoint(string &keep[], string name, datetime t, double price,
+               string txt, color clr, bool above)
+  {
+   if(ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_TEXT, 0, t, price);
+   else
+      ObjectMove(0, name, 0, t, price);
+   ObjectSetString (0, name, OBJPROP_TEXT, txt);
+   ObjectSetString (0, name, OBJPROP_FONT, "Arial Black");
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 8);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_ANCHOR, above ? ANCHOR_LOWER : ANCHOR_UPPER);
+   ObjectSetInteger(0, name, OBJPROP_BACK, false);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   KeepName(keep, name);
+  }
+
+//+------------------------------------------------------------------+
+// Numérote les swings de la fenêtre du jour et les marque.
 // Un swing n'est acquis que ConfirmDepth bougies après son sommet : les
 // flèches apparaissent donc avec ce retard, comme toute lecture de structure.
 void BuildConfirmPoints()
@@ -1209,7 +1231,8 @@ void BuildConfirmPoints()
       return;
      }
 
-   double firstHigh = 0.0, lastHigh = 0.0, firstLow = 0.0, lastLow = 0.0;
+   // Seuls #1 et #2 décident : c'est l'hypothèse qui a été mesurée.
+   double firstHigh = 0.0, secondHigh = 0.0, firstLow = 0.0, secondLow = 0.0;
 
    for(int i = MathMax(bFrom, bTo); i >= MathMin(bFrom, bTo); i--)
      {
@@ -1230,45 +1253,29 @@ void BuildConfirmPoints()
       if(isH)
         {
          gConfHighs++;
-         if(gConfHighs == 1) firstHigh = h;
-         lastHigh = h;
-         string nm = StringFormat("%scp_H%d_%d", PFX, gConfHighs, (int)t);
-         if(ObjectFind(0, nm) < 0)
-            ObjectCreate(0, nm, OBJ_ARROW, 0, t, h);
-         else
-            ObjectMove(0, nm, 0, t, h);
-         ObjectSetInteger(0, nm, OBJPROP_ARROWCODE, 242);      // flèche bas
-         ObjectSetInteger(0, nm, OBJPROP_COLOR, clrRed);
-         ObjectSetInteger(0, nm, OBJPROP_WIDTH, 2);
-         ObjectSetInteger(0, nm, OBJPROP_ANCHOR, ANCHOR_BOTTOM);
-         ObjectSetInteger(0, nm, OBJPROP_SELECTABLE, false);
-         ObjectSetString (0, nm, OBJPROP_TOOLTIP, StringFormat("HIGH #%d", gConfHighs));
-         KeepName(keep, nm);
+         if(gConfHighs == 1) firstHigh  = h;
+         if(gConfHighs == 2) secondHigh = h;
+         if(gConfHighs <= ConfirmMaxPoints)
+            MarkPoint(keep, StringFormat("%scp_H%d_%d", PFX, gConfHighs, (int)t),
+                      t, h, StringFormat("H%d", gConfHighs), clrRed, true);
         }
       if(isL)
         {
          gConfLows++;
-         if(gConfLows == 1) firstLow = l;
-         lastLow = l;
-         string nm = StringFormat("%scp_L%d_%d", PFX, gConfLows, (int)t);
-         if(ObjectFind(0, nm) < 0)
-            ObjectCreate(0, nm, OBJ_ARROW, 0, t, l);
-         else
-            ObjectMove(0, nm, 0, t, l);
-         ObjectSetInteger(0, nm, OBJPROP_ARROWCODE, 241);      // flèche haut
-         ObjectSetInteger(0, nm, OBJPROP_COLOR, clrLime);
-         ObjectSetInteger(0, nm, OBJPROP_WIDTH, 2);
-         ObjectSetInteger(0, nm, OBJPROP_ANCHOR, ANCHOR_TOP);
-         ObjectSetInteger(0, nm, OBJPROP_SELECTABLE, false);
-         ObjectSetString (0, nm, OBJPROP_TOOLTIP, StringFormat("LOW #%d", gConfLows));
-         KeepName(keep, nm);
+         if(gConfLows == 1) firstLow  = l;
+         if(gConfLows == 2) secondLow = l;
+         if(gConfLows <= ConfirmMaxPoints)
+            MarkPoint(keep, StringFormat("%scp_L%d_%d", PFX, gConfLows, (int)t),
+                      t, l, StringFormat("L%d", gConfLows), clrLime, false);
         }
      }
 
-   if(gConfHighs >= 2 && lastHigh < firstHigh)
-     { gConfState = -1; gConfLast = StringFormat("HIGH #%d < #1", gConfHighs); }
-   else if(gConfLows >= 2 && lastLow > firstLow)
-     { gConfState = +1; gConfLast = StringFormat("LOW #%d > #1", gConfLows); }
+   // La comparaison porte sur #2 contre #1, pas sur le dernier point : c'est
+   // ainsi que l'hypothèse a été testée, l'indicateur doit dire la même chose.
+   if(gConfHighs >= 2 && secondHigh < firstHigh)
+     { gConfState = -1; gConfLast = "H2 < H1"; }
+   else if(gConfLows >= 2 && secondLow > firstLow)
+     { gConfState = +1; gConfLast = "L2 > L1"; }
 
    PruneObjects(PFX"cp_", keep);
   }
