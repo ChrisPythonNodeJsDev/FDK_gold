@@ -1,0 +1,1075 @@
+#property copyright "Custom"
+#property link      ""
+#property version   "1.00"
+#property indicator_chart_window
+#property indicator_plots 0
+
+//--- Inputs: session times are in "Benin time" (GMT+1, no DST); the offset
+//--- converts broker/server time to Benin time: BeninTime = ServerTime + offset.
+//--- With AutoDetectTimezone the offset is derived from the broker's own clock,
+//--- so it follows the broker across DST changes without manual edits.
+input group "=== Fuseau horaire ==="
+input bool   AutoDetectTimezone       = true;   // Détecter le décalage automatiquement
+input int    ServerToBeninOffsetHours = 0;      // Décalage manuel Serveur -> Bénin (si auto désactivé)
+
+input group "=== Sessions (heure Bénin, format HHMM) ==="
+input int    AsiaStart      = 0000;
+input int    AsiaEnd        = 0400;
+input int    LondonStart    = 0800;
+input int    LondonEnd      = 1100;
+input int    NewYorkAMStart = 1330;
+input int    NewYorkAMEnd   = 1600;
+input int    NewYorkPMStart = 1600;
+input int    NewYorkPMEnd   = 1900;
+
+input group "=== Structure / Biais ==="
+input int    StructureLookback = 20;    // Barres utilisées pour détecter la structure (swings)
+input int    SwingDepth        = 3;     // Profondeur de détection des swing highs/lows
+
+input group "=== Indicateurs ==="
+input int    RSIPeriod = 14;
+input int    ATRPeriod = 14;
+
+input group "=== Take Profit (multiples ATR) ==="
+input double TP1_ATR_Mult = 1.0;
+input double TP2_ATR_Mult = 2.0;
+
+input group "=== Affichage ==="
+input color  ColorAsia        = clrDodgerBlue;
+input color  ColorLondon      = clrSeaGreen;
+input color  ColorNewYorkAM   = clrGoldenrod;
+input color  ColorNewYorkPM   = clrIndianRed;
+input int    BoxOpacity       = 40;      // 0-255, transparence des zones de session
+input int    PanelX           = 10;
+input int    PanelY           = 10;
+input color  PanelBgColor     = clrBlack;
+input color  PanelTextColor   = clrWhite;
+input color  BullishColor     = clrLime;
+input color  BearishColor     = clrTomato;
+
+input group "=== Étiquette journalière (graphique) ==="
+input bool   ShowDayLabels    = true;    // Afficher biais H4/M15 + range sur chaque journée
+input color  DayLabelColor    = clrCornflowerBlue;
+input int    DayLabelFontSize = 8;
+input int    DayLabelMaxDays   = 10;    // Nb max de journées étiquetées (0 = toutes)
+
+//--- Supply/demand zones: a "base" of small candles followed by an impulse
+//--- candle marks an imbalance price often revisits. A zone stays "fraîche"
+//--- until price trades back into it (mitigation).
+input group "=== Zones Offre / Demande ==="
+input bool   ShowZones         = true;   // Afficher les zones d'offre et de demande
+input double ZoneImpulseATR    = 1.5;    // Corps mini de la bougie d'impulsion (x ATR)
+input double ZoneBaseATR       = 0.5;    // Corps maxi des bougies de base (x ATR)
+input int    ZoneMaxBase       = 3;      // Nombre maxi de bougies dans la base
+input int    ZoneLookback      = 400;    // Barres analysées pour la détection
+input int    ZoneMaxPerSide    = 6;      // Nombre maxi de zones affichées par côté
+input bool   ZoneShowMitigated = false;  // Garder les zones déjà touchées (en estompé)
+input bool   ZoneUseHTF        = true;   // Ajouter les zones d'une unité de temps supérieure
+input ENUM_TIMEFRAMES ZoneHTF  = PERIOD_H4;
+input color  ColorSupply       = clrCrimson;
+input color  ColorDemand       = clrDeepSkyBlue;
+input int    ZoneOpacity       = 55;     // 0-255, opacité du remplissage des zones
+
+input group "=== Journal des signaux ==="
+input bool   LogSignals  = true;   // Enregistrer chaque ENTREE AUTORISEE dans un CSV
+input string LogFileName = "";     // Vide = FDK_signaux_<symbole>.csv
+
+//--- Object name prefixes
+#define PFX "FDKG_"
+#define PANEL_BG    PFX"panel_bg"
+#define PANEL_PREFIX PFX"panel_line_"
+
+int hRSI, hATR_M15;
+int hATR_Zone = INVALID_HANDLE;      // ATR on the chart timeframe
+int hATR_ZoneHTF = INVALID_HANDLE;   // ATR on the higher timeframe
+datetime lastDrawnDay = 0;
+int      panelLineCount = 0;   // lines drawn on the previous panel render
+
+//--- Signal journal state
+datetime gLastLoggedBar = 0;   // bar already written, guards against duplicates
+int      gPrevSignalDir = 0;   // previous ENTREE AUTORISEE direction (0 = none)
+
+//--- Last state the heavy chart layer was drawn for
+datetime gLastBar          = 0;
+int      gLastFirstVisible = -1;
+int      gLastVisibleBars  = -1;
+
+//--- A base/impulse imbalance. Supply sits above price, demand below.
+struct Zone
+  {
+   datetime        tStart;
+   double          hi;
+   double          lo;
+   bool            isSupply;
+   bool            mitigated;
+   ENUM_TIMEFRAMES tf;
+  };
+
+Zone   gZones[];
+int    gZoneCount = 0;
+
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+   hRSI = iRSI(_Symbol, PERIOD_M15, RSIPeriod, PRICE_CLOSE);
+   hATR_M15 = iATR(_Symbol, PERIOD_M15, ATRPeriod);
+   if(hRSI == INVALID_HANDLE || hATR_M15 == INVALID_HANDLE)
+     {
+      Print("FDK_Gold_Custom: erreur création handles indicateurs");
+      return(INIT_FAILED);
+     }
+
+   if(ShowZones)
+     {
+      hATR_Zone = iATR(_Symbol, PERIOD_CURRENT, ATRPeriod);
+      if(hATR_Zone == INVALID_HANDLE)
+        {
+         Print("FDK_Gold_Custom: erreur handle ATR zones");
+         return(INIT_FAILED);
+        }
+      if(ZoneUseHTF)
+        {
+         hATR_ZoneHTF = iATR(_Symbol, ZoneHTF, ATRPeriod);
+         if(hATR_ZoneHTF == INVALID_HANDLE)
+           {
+            Print("FDK_Gold_Custom: erreur handle ATR zones HTF");
+            return(INIT_FAILED);
+           }
+        }
+     }
+   if(LogSignals)
+      gLastLoggedBar = InitLog();
+
+   CreatePanel();
+   EventSetTimer(5);
+   return(INIT_SUCCEEDED);
+  }
+
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+   EventKillTimer();
+   ObjectsDeleteAll(0, PFX);
+  }
+
+//+------------------------------------------------------------------+
+void OnTimer()
+  {
+   UpdateAll();
+  }
+
+//+------------------------------------------------------------------+
+int OnCalculate(const int rates_total,
+                 const int prev_calculated,
+                 const datetime &time[],
+                 const double &open[],
+                 const double &high[],
+                 const double &low[],
+                 const double &close[],
+                 const long &tick_volume[],
+                 const long &volume[],
+                 const int &spread[])
+  {
+   UpdateAll();
+   return(rates_total);
+  }
+
+//+------------------------------------------------------------------+
+string LogPath()
+  {
+   if(StringLen(LogFileName) > 0)
+      return(LogFileName);
+   return("FDK_signaux_" + _Symbol + ".csv");
+  }
+
+//+------------------------------------------------------------------+
+// Create the journal with its header if absent, and return the last bar
+// already recorded so a reload does not duplicate a signal still standing.
+datetime InitLog()
+  {
+   string f = LogPath();
+
+   if(!FileIsExist(f))
+     {
+      int hw = FileOpen(f, FILE_WRITE|FILE_CSV|FILE_ANSI, ',');
+      if(hw == INVALID_HANDLE)
+        {
+         PrintFormat("FDK: journal %s non creable (err %d)", f, GetLastError());
+         return(0);
+        }
+      FileWrite(hw, "bar_time_serveur", "tick_time_serveur", "heure_benin",
+                "symbole", "periode", "sens", "prix", "atr", "tp1", "tp2",
+                "session", "biais_m15", "biais_h4", "rsi");
+      FileClose(hw);
+      PrintFormat("FDK: journal cree -> MQL5/Files/%s", f);
+      return(0);
+     }
+
+   int hr = FileOpen(f, FILE_READ|FILE_CSV|FILE_ANSI, ',');
+   if(hr == INVALID_HANDLE)
+      return(0);
+
+   datetime last = 0;
+   while(!FileIsEnding(hr))
+     {
+      string first = FileReadString(hr);
+      while(!FileIsLineEnding(hr) && !FileIsEnding(hr))
+         FileReadString(hr);
+      datetime t = StringToTime(first);
+      if(t > 0)
+         last = t;
+     }
+   FileClose(hr);
+   PrintFormat("FDK: journal %s, dernier signal enregistre %s", f,
+               last > 0 ? TimeToString(last, TIME_DATE|TIME_MINUTES) : "aucun");
+   return(last);
+  }
+
+//+------------------------------------------------------------------+
+void LogSignal(datetime barTime, int dir, double price, double atr,
+               double tp1, double tp2, string session,
+               int bM15, int bH4, double rsi)
+  {
+   string f = LogPath();
+   int h = FileOpen(f, FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI, ',');
+   if(h == INVALID_HANDLE)
+     {
+      PrintFormat("FDK: journal %s inaccessible (err %d)", f, GetLastError());
+      return;
+     }
+   FileSeek(h, 0, SEEK_END);
+
+   int dg = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   FileWrite(h,
+             TimeToString(barTime, TIME_DATE|TIME_SECONDS),
+             TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS),
+             TimeToString(BeninTime(), TIME_DATE|TIME_SECONDS),
+             _Symbol,
+             EnumToString((ENUM_TIMEFRAMES)_Period),
+             dir > 0 ? "LONG" : "SHORT",
+             DoubleToString(price, dg),
+             DoubleToString(atr,   dg),
+             DoubleToString(tp1,   dg),
+             DoubleToString(tp2,   dg),
+             session,
+             IntegerToString(bM15),
+             IntegerToString(bH4),
+             DoubleToString(rsi, 1));
+   FileClose(h);
+
+   gLastLoggedBar = barTime;
+   PrintFormat("FDK: signal %s enregistre (%s, %s)",
+               dir > 0 ? "LONG" : "SHORT", session,
+               TimeToString(barTime, TIME_DATE|TIME_MINUTES));
+  }
+
+//+------------------------------------------------------------------+
+// Boxes, zones and day labels only change when a bar closes or the visible
+// window moves. Rebuilding them on every tick was what made the chart blink.
+void UpdateAll()
+  {
+   datetime curBar   = iTime(_Symbol, PERIOD_CURRENT, 0);
+   int      firstVis = (int)ChartGetInteger(0, CHART_FIRST_VISIBLE_BAR);
+   int      visBars  = (int)ChartGetInteger(0, CHART_VISIBLE_BARS);
+
+   if(curBar != gLastBar || firstVis != gLastFirstVisible || visBars != gLastVisibleBars)
+     {
+      gLastBar          = curBar;
+      gLastFirstVisible = firstVis;
+      gLastVisibleBars  = visBars;
+
+      DrawSessionBoxes();
+      DrawDayLabels();
+      BuildZones();
+      DrawZones();
+     }
+
+   DrawRangeLines();   // cheap, moves two lines in place
+   UpdatePanel();
+   ChartRedraw(0);
+  }
+
+//+------------------------------------------------------------------+
+void KeepName(string &keep[], string nm)
+  {
+   int n = ArraySize(keep);
+   ArrayResize(keep, n + 1);
+   keep[n] = nm;
+  }
+
+//+------------------------------------------------------------------+
+// Delete only the objects under `prefix` that are no longer wanted. Pruning
+// instead of ObjectsDeleteAll keeps the existing objects on screen, which is
+// what stops the flicker.
+void PruneObjects(string prefix, string &keep[])
+  {
+   int kn = ArraySize(keep);
+   for(int i = ObjectsTotal(0, -1, -1) - 1; i >= 0; i--)
+     {
+      string nm = ObjectName(0, i, -1, -1);
+      if(StringFind(nm, prefix) != 0)
+         continue;
+      bool found = false;
+      for(int k = 0; k < kn; k++)
+         if(keep[k] == nm) { found = true; break; }
+      if(!found)
+         ObjectDelete(0, nm);
+     }
+  }
+
+//+------------------------------------------------------------------+
+// Hours to add to server time to obtain Benin time (WAT = GMT+1, no DST).
+// Auto mode compares the broker clock against GMT, so a broker switching to
+// summer time is picked up on the next tick with no input change.
+int BeninOffsetHours()
+  {
+   if(!AutoDetectTimezone)
+      return(ServerToBeninOffsetHours);
+
+   datetime gmt = TimeGMT();
+   if(gmt <= 0)                       // GMT unavailable: fall back to manual
+      return(ServerToBeninOffsetHours);
+
+   double diff = ((double)(gmt + 3600) - (double)TimeCurrent()) / 3600.0;
+   return((int)MathRound(diff));
+  }
+
+//+------------------------------------------------------------------+
+datetime BeninTime()
+  {
+   return(TimeCurrent() + BeninOffsetHours() * 3600);
+  }
+
+//+------------------------------------------------------------------+
+// Server-time timestamp of the start of the current Benin day
+datetime BeninDayStart()
+  {
+   datetime beninNow = BeninTime();
+   return(beninNow - (beninNow % 86400) - BeninOffsetHours() * 3600);
+  }
+
+//+------------------------------------------------------------------+
+// Convert HHMM int (e.g. 1330) to seconds-since-midnight
+int HHMMToSeconds(int hhmm)
+  {
+   int hh = hhmm / 100;
+   int mm = hhmm % 100;
+   return(hh * 3600 + mm * 60);
+  }
+
+//+------------------------------------------------------------------+
+// Returns seconds-since-midnight for a given Benin datetime
+int SecondsOfDay(datetime t)
+  {
+   MqlDateTime dt;
+   TimeToStruct(t, dt);
+   return(dt.hour * 3600 + dt.min * 60 + dt.sec);
+  }
+
+//+------------------------------------------------------------------+
+struct SessionDef
+  {
+   string name;
+   int    startSec;
+   int    endSec;
+   color  clr;
+  };
+
+int GetSessions(SessionDef &sessions[])
+  {
+   ArrayResize(sessions, 4);
+   sessions[0].name = "ASIE";      sessions[0].startSec = HHMMToSeconds(AsiaStart);      sessions[0].endSec = HHMMToSeconds(AsiaEnd);      sessions[0].clr = ColorAsia;
+   sessions[1].name = "LONDRES";   sessions[1].startSec = HHMMToSeconds(LondonStart);    sessions[1].endSec = HHMMToSeconds(LondonEnd);    sessions[1].clr = ColorLondon;
+   sessions[2].name = "NY AM";     sessions[2].startSec = HHMMToSeconds(NewYorkAMStart); sessions[2].endSec = HHMMToSeconds(NewYorkAMEnd); sessions[2].clr = ColorNewYorkAM;
+   sessions[3].name = "NY PM";     sessions[3].startSec = HHMMToSeconds(NewYorkPMStart); sessions[3].endSec = HHMMToSeconds(NewYorkPMEnd); sessions[3].clr = ColorNewYorkPM;
+   return(4);
+  }
+
+//+------------------------------------------------------------------+
+// Draw session boxes for the visible chart range, one rectangle per session per day
+void DrawSessionBoxes()
+  {
+   int barsVisible = (int)ChartGetInteger(0, CHART_VISIBLE_BARS);
+   int firstVisible = (int)ChartGetInteger(0, CHART_FIRST_VISIBLE_BAR);
+   if(barsVisible <= 0)
+      return;
+
+   int startIdx = firstVisible;
+   int endIdx   = MathMax(0, firstVisible - barsVisible);
+
+   datetime tStart = iTime(_Symbol, PERIOD_CURRENT, MathMin(startIdx, iBars(_Symbol,PERIOD_CURRENT)-1));
+   datetime tEnd   = iTime(_Symbol, PERIOD_CURRENT, endIdx);
+
+   SessionDef sessions[];
+   GetSessions(sessions);
+
+   // Iterate day by day across the visible range. Session hours are Benin
+   // seconds-of-day, so the cursor must sit on Benin midnight expressed in
+   // server time — anchoring on server midnight would shift every box.
+   int off = BeninOffsetHours();
+   datetime beninOldest = tStart + off * 3600;
+   datetime dayCursor   = (beninOldest - (beninOldest % 86400)) - off * 3600;
+   datetime dayLimit    = tEnd;
+
+   string keep[];
+
+   while(dayCursor <= dayLimit)
+     {
+      for(int s = 0; s < ArraySize(sessions); s++)
+        {
+         datetime boxStart = dayCursor + sessions[s].startSec;
+         datetime boxEnd   = dayCursor + sessions[s].endSec;
+         if(boxEnd <= boxStart)
+            continue;
+
+         string objName = PFX + "box_" + sessions[s].name + "_" + IntegerToString((long)dayCursor);
+         double hi, lo;
+         if(!GetRangeHighLow(boxStart, boxEnd, hi, lo))
+            continue;
+
+         if(ObjectFind(0, objName) < 0)
+            ObjectCreate(0, objName, OBJ_RECTANGLE, 0, boxStart, hi, boxEnd, lo);
+         else
+           {
+            ObjectMove(0, objName, 0, boxStart, hi);
+            ObjectMove(0, objName, 1, boxEnd, lo);
+           }
+         ObjectSetInteger(0, objName, OBJPROP_COLOR, sessions[s].clr);
+         ObjectSetInteger(0, objName, OBJPROP_FILL, true);
+         ObjectSetInteger(0, objName, OBJPROP_BACK, true);
+         ObjectSetInteger(0, objName, OBJPROP_STYLE, STYLE_SOLID);
+         ObjectSetInteger(0, objName, OBJPROP_WIDTH, 1);
+         ObjectSetInteger(0, objName, OBJPROP_SELECTABLE, false);
+         KeepName(keep, objName);
+        }
+      dayCursor += 86400;
+     }
+
+   PruneObjects(PFX"box_", keep);
+  }
+
+//+------------------------------------------------------------------+
+bool GetRangeHighLow(datetime from, datetime to, double &hi, double &lo)
+  {
+   int barFrom = iBarShift(_Symbol, PERIOD_CURRENT, from, false);
+   int barTo   = iBarShift(_Symbol, PERIOD_CURRENT, to, false);
+   if(barFrom < 0 || barTo < 0)
+      return(false);
+   int startBar = MathMin(barFrom, barTo);
+   int count    = MathAbs(barFrom - barTo) + 1;
+   if(count < 1)
+      return(false);
+   int hiIdx = iHighest(_Symbol, PERIOD_CURRENT, MODE_HIGH, count, startBar);
+   int loIdx = iLowest(_Symbol, PERIOD_CURRENT, MODE_LOW, count, startBar);
+   if(hiIdx < 0 || loIdx < 0)
+      return(false);
+   hi = iHigh(_Symbol, PERIOD_CURRENT, hiIdx);
+   lo = iLow(_Symbol, PERIOD_CURRENT, loIdx);
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+// Draw today's range high/low horizontal dashed lines
+void DrawRangeLines()
+  {
+   datetime dayStart = BeninDayStart();
+   datetime dayEnd   = TimeCurrent();
+
+   double hi, lo;
+   if(!GetRangeHighLow(dayStart, dayEnd, hi, lo))
+      return;
+
+   DrawHLine(PFX"line_high", hi, clrRed, "Range High");
+   DrawHLine(PFX"line_low",  lo, clrDodgerBlue, "Range Low");
+  }
+
+//+------------------------------------------------------------------+
+void DrawHLine(string name, double price, color clr, string text)
+  {
+   if(ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_HLINE, 0, 0, price);
+   else
+      ObjectMove(0, name, 0, 0, price);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_DASH);
+   ObjectSetInteger(0, name, OBJPROP_WIDTH, 1);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_BACK, true);
+  }
+
+//+------------------------------------------------------------------+
+// Simple structure-based bias: compare last two swing highs and last two swing lows
+// Returns 1 = bullish, -1 = bearish, 0 = neutre/indéterminé
+// startShift = 0 evaluates the bias now; a positive shift evaluates it as of
+// that bar, which is what the per-day chart labels need.
+int ComputeBias(ENUM_TIMEFRAMES tf, int startShift = 0)
+  {
+   double highs[], lows[];
+   int bars = StructureLookback + SwingDepth * 2 + 2;
+   if(startShift < 0)
+      startShift = 0;
+   if(CopyHigh(_Symbol, tf, startShift, bars, highs) < bars)
+      return(0);
+   if(CopyLow(_Symbol, tf, startShift, bars, lows) < bars)
+      return(0);
+   ArraySetAsSeries(highs, true);
+   ArraySetAsSeries(lows, true);
+
+   int swingHighIdx[]; int swingLowIdx[];
+   int shCount = 0, slCount = 0;
+   ArrayResize(swingHighIdx, StructureLookback);
+   ArrayResize(swingLowIdx, StructureLookback);
+
+   for(int i = SwingDepth; i < StructureLookback + SwingDepth; i++)
+     {
+      bool isHigh = true, isLow = true;
+      for(int k = 1; k <= SwingDepth; k++)
+        {
+         if(highs[i] <= highs[i-k] || highs[i] <= highs[i+k]) isHigh = false;
+         if(lows[i]  >= lows[i-k]  || lows[i]  >= lows[i+k])  isLow  = false;
+        }
+      if(isHigh && shCount < StructureLookback) swingHighIdx[shCount++] = i;
+      if(isLow  && slCount < StructureLookback) swingLowIdx[slCount++]  = i;
+     }
+
+   if(shCount < 2 || slCount < 2)
+      return(0);
+
+   double h1 = highs[swingHighIdx[0]], h2 = highs[swingHighIdx[1]];
+   double l1 = lows[swingLowIdx[0]],   l2 = lows[swingLowIdx[1]];
+
+   bool higherHigh = h1 > h2;
+   bool higherLow  = l1 > l2;
+   bool lowerHigh  = h1 < h2;
+   bool lowerLow   = l1 < l2;
+
+   if(higherHigh && higherLow)
+      return(1);
+   if(lowerHigh && lowerLow)
+      return(-1);
+   return(0);
+  }
+
+//+------------------------------------------------------------------+
+// Scan one timeframe for base+impulse imbalances and append them to gZones.
+// Series indexing: index 0 is the newest bar, so the base sits at HIGHER
+// indices than the impulse that left it behind.
+void DetectZones(ENUM_TIMEFRAMES tf, int atrHandle)
+  {
+   if(atrHandle == INVALID_HANDLE)
+      return;
+
+   int avail = Bars(_Symbol, tf);
+   if(avail < ATRPeriod + ZoneMaxBase + 10)
+      return;
+
+   int need = MathMin(ZoneLookback, avail - ZoneMaxBase - 2);
+   if(need < 10)
+      return;
+
+   double atr[], op[], cl[], hi[], lo[];
+   datetime tm[];
+   int span = need + ZoneMaxBase + 2;
+
+   if(CopyBuffer(atrHandle, 0, 0, span, atr) < span) return;
+   if(CopyOpen (_Symbol, tf, 0, span, op)   < span) return;
+   if(CopyClose(_Symbol, tf, 0, span, cl)   < span) return;
+   if(CopyHigh (_Symbol, tf, 0, span, hi)   < span) return;
+   if(CopyLow  (_Symbol, tf, 0, span, lo)   < span) return;
+   if(CopyTime (_Symbol, tf, 0, span, tm)   < span) return;
+
+   ArraySetAsSeries(atr, true); ArraySetAsSeries(op, true);
+   ArraySetAsSeries(cl,  true); ArraySetAsSeries(hi, true);
+   ArraySetAsSeries(lo,  true); ArraySetAsSeries(tm, true);
+
+   // Walk newest -> oldest so the freshest zones are kept first
+   for(int i = 1; i < need; i++)
+     {
+      double a = atr[i];
+      if(a <= 0.0)
+         continue;
+
+      double body = MathAbs(cl[i] - op[i]);
+      if(body < ZoneImpulseATR * a)
+         continue;                              // not an impulse candle
+
+      bool bullish = (cl[i] > op[i]);
+
+      // Collect the small-bodied base candles immediately before the impulse
+      int baseCount = 0;
+      for(int j = i + 1; j <= i + ZoneMaxBase && j < span; j++)
+        {
+         if(atr[j] <= 0.0)
+            break;
+         if(MathAbs(cl[j] - op[j]) > ZoneBaseATR * atr[j])
+            break;
+         baseCount++;
+        }
+      if(baseCount == 0)
+         continue;                              // impulse with no base to mark
+
+      double zHi = hi[i + 1], zLo = lo[i + 1];
+      for(int j = i + 1; j <= i + baseCount; j++)
+        {
+         zHi = MathMax(zHi, hi[j]);
+         zLo = MathMin(zLo, lo[j]);
+        }
+      if(zHi <= zLo)
+         continue;
+
+      // Mitigated once price trades back into the zone after the impulse
+      bool mitigated = false;
+      for(int k = i - 1; k >= 0; k--)
+        {
+         if(bullish ? (lo[k] <= zHi) : (hi[k] >= zLo))
+           {
+            mitigated = true;
+            break;
+           }
+        }
+      if(mitigated && !ZoneShowMitigated)
+         continue;
+
+      int n = ArraySize(gZones);
+      ArrayResize(gZones, n + 1);
+      gZones[n].tStart    = tm[i + baseCount];
+      gZones[n].hi        = zHi;
+      gZones[n].lo        = zLo;
+      gZones[n].isSupply  = !bullish;
+      gZones[n].mitigated = mitigated;
+      gZones[n].tf        = tf;
+
+      i += baseCount;                           // don't re-detect inside this base
+     }
+  }
+
+//+------------------------------------------------------------------+
+// Rebuild the zone list, newest first, capped per side.
+void BuildZones()
+  {
+   ArrayResize(gZones, 0);
+   gZoneCount = 0;
+   if(!ShowZones)
+      return;
+
+   DetectZones(PERIOD_CURRENT, hATR_Zone);
+   if(ZoneUseHTF)
+      DetectZones(ZoneHTF, hATR_ZoneHTF);
+
+   int total = ArraySize(gZones);
+   if(total == 0)
+      return;
+
+   // Keep the zones NEAREST to price rather than merely the most recent:
+   // a perfectly fresh zone 1800 pips away is noise on the chart.
+   double price = iClose(_Symbol, PERIOD_CURRENT, 0);
+   bool   taken[];
+   ArrayResize(taken, total);
+   for(int i = 0; i < total; i++)
+      taken[i] = false;
+
+   Zone kept[];
+   int supply = 0, demand = 0;
+
+   for(int pass = 0; pass < total; pass++)
+     {
+      int    best     = -1;
+      double bestDist = 0.0;
+      for(int i = 0; i < total; i++)
+        {
+         if(taken[i])                                        continue;
+         if(gZones[i].isSupply  && supply >= ZoneMaxPerSide)  continue;
+         if(!gZones[i].isSupply && demand >= ZoneMaxPerSide)  continue;
+
+         double edge = gZones[i].isSupply ? gZones[i].lo : gZones[i].hi;
+         double d    = MathAbs(edge - price);
+         if(best < 0 || d < bestDist)
+           { best = i; bestDist = d; }
+        }
+      if(best < 0)
+         break;
+
+      taken[best] = true;
+      if(gZones[best].isSupply) supply++; else demand++;
+
+      int n = ArraySize(kept);
+      ArrayResize(kept, n + 1);
+      kept[n] = gZones[best];
+     }
+   ArrayResize(gZones, ArraySize(kept));
+   for(int i = 0; i < ArraySize(kept); i++)
+      gZones[i] = kept[i];
+   gZoneCount = ArraySize(gZones);
+  }
+
+//+------------------------------------------------------------------+
+void DrawZones()
+  {
+   string keep[];
+   if(!ShowZones)
+     {
+      PruneObjects(PFX"zone_", keep);
+      return;
+     }
+
+   datetime rightEdge = TimeCurrent() + PeriodSeconds(PERIOD_CURRENT) * 10;
+   int alpha = (int)MathMax(0, MathMin(255, ZoneOpacity));
+
+   for(int i = 0; i < gZoneCount; i++)
+     {
+      // Name keyed on the zone itself, not its list position, so a rebuild
+      // reuses the same object instead of destroying and recreating it.
+      string name = StringFormat("%szone_%s_%d_%d", PFX,
+                                 gZones[i].isSupply ? "S" : "D",
+                                 (int)gZones[i].tStart, (int)gZones[i].tf);
+      color  base = gZones[i].isSupply ? ColorSupply : ColorDemand;
+      uchar  a    = (uchar)(gZones[i].mitigated ? alpha / 3 : alpha);
+
+      if(ObjectFind(0, name) < 0)
+         ObjectCreate(0, name, OBJ_RECTANGLE, 0, gZones[i].tStart, gZones[i].hi, rightEdge, gZones[i].lo);
+      else
+        {
+         ObjectMove(0, name, 0, gZones[i].tStart, gZones[i].hi);
+         ObjectMove(0, name, 1, rightEdge, gZones[i].lo);
+        }
+      ObjectSetInteger(0, name, OBJPROP_COLOR, ColorToARGB(base, a));
+      ObjectSetInteger(0, name, OBJPROP_FILL, true);
+      ObjectSetInteger(0, name, OBJPROP_BACK, true);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetString (0, name, OBJPROP_TOOLTIP,
+                       StringFormat("%s %s%s", gZones[i].isSupply ? "OFFRE" : "DEMANDE",
+                                    EnumToString(gZones[i].tf),
+                                    gZones[i].mitigated ? " (touchée)" : " (fraîche)"));
+      KeepName(keep, name);
+     }
+
+   PruneObjects(PFX"zone_", keep);
+  }
+
+//+------------------------------------------------------------------+
+// Nearest fresh supply above / demand below the current price.
+// Returns false when no such zone exists.
+bool NearestZone(bool wantSupply, double price, double &zHi, double &zLo, double &distPips)
+  {
+   bool   found = false;
+   double bestEdge = 0.0;
+
+   for(int i = 0; i < gZoneCount; i++)
+     {
+      if(gZones[i].isSupply != wantSupply) continue;
+      if(gZones[i].mitigated)              continue;
+
+      if(wantSupply)
+        {
+         if(gZones[i].lo < price) continue;          // must sit above price
+         if(!found || gZones[i].lo < bestEdge)
+           { bestEdge = gZones[i].lo; zHi = gZones[i].hi; zLo = gZones[i].lo; found = true; }
+        }
+      else
+        {
+         if(gZones[i].hi > price) continue;          // must sit below price
+         if(!found || gZones[i].hi > bestEdge)
+           { bestEdge = gZones[i].hi; zHi = gZones[i].hi; zLo = gZones[i].lo; found = true; }
+        }
+     }
+
+   if(found)
+      distPips = MathAbs(bestEdge - price) / PipSize();
+   return(found);
+  }
+
+//+------------------------------------------------------------------+
+// True when price currently sits inside a fresh zone of the given side.
+bool PriceInZone(bool wantSupply, double price)
+  {
+   for(int i = 0; i < gZoneCount; i++)
+     {
+      if(gZones[i].isSupply != wantSupply) continue;
+      if(gZones[i].mitigated)              continue;
+      if(price >= gZones[i].lo && price <= gZones[i].hi)
+         return(true);
+     }
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+// One pip. Gold quotes on 2 digits, where a pip is 0.10 (not 0.01).
+double PipSize()
+  {
+   if(_Digits == 2 || _Digits == 3 || _Digits == 5)
+      return(_Point * 10);
+   return(_Point);
+  }
+
+//+------------------------------------------------------------------+
+void MakeDayText(string name, datetime t, double price, string txt, color clr)
+  {
+   if(ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_TEXT, 0, t, price);
+   else
+      ObjectMove(0, name, 0, t, price);
+   ObjectSetString(0, name, OBJPROP_TEXT, txt);
+   ObjectSetString(0, name, OBJPROP_FONT, "Arial");
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, DayLabelFontSize);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_LEFT);
+   ObjectSetInteger(0, name, OBJPROP_BACK, false);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+  }
+
+//+------------------------------------------------------------------+
+// One label per Benin day, sitting on that day's range-high line:
+// H4 bias / M15 bias / range in pips, all evaluated at the day's close.
+void DrawDayLabels()
+  {
+   string keep[];
+   if(!ShowDayLabels)
+     {
+      PruneObjects(PFX"daylbl_", keep);
+      PruneObjects(PFX"dayhi_",  keep);
+      return;
+     }
+
+   int barsVisible  = (int)ChartGetInteger(0, CHART_VISIBLE_BARS);
+   int firstVisible = (int)ChartGetInteger(0, CHART_FIRST_VISIBLE_BAR);
+   if(barsVisible <= 0)
+      return;
+
+   int totalBars = iBars(_Symbol, PERIOD_CURRENT);
+   if(totalBars <= 0)
+      return;
+
+   datetime tStart = iTime(_Symbol, PERIOD_CURRENT, MathMin(firstVisible, totalBars - 1));
+   datetime tEnd   = iTime(_Symbol, PERIOD_CURRENT, MathMax(0, firstVisible - barsVisible));
+
+   int off = BeninOffsetHours();
+   datetime beninOldest = tStart + off * 3600;
+   datetime dayCursor   = (beninOldest - (beninOldest % 86400)) - off * 3600;
+   double   pip         = PipSize();
+
+   // On a high timeframe the visible window can span months; one label per
+   // day would bury the chart under overlapping text.
+   if(DayLabelMaxDays > 0)
+     {
+      int span = (int)((tEnd - dayCursor) / 86400) + 1;
+      if(span > DayLabelMaxDays)
+         dayCursor += (datetime)((span - DayLabelMaxDays) * 86400);
+     }
+
+   while(dayCursor <= tEnd)
+     {
+      datetime dayEnd = dayCursor + 86400;
+      if(dayEnd > TimeCurrent())
+         dayEnd = TimeCurrent();
+
+      double hi, lo;
+      if(dayEnd > dayCursor && GetRangeHighLow(dayCursor, dayEnd, hi, lo))
+        {
+         int shiftH4  = iBarShift(_Symbol, PERIOD_H4,  dayEnd, false);
+         int shiftM15 = iBarShift(_Symbol, PERIOD_M15, dayEnd, false);
+         int bH4      = ComputeBias(PERIOD_H4,  shiftH4);
+         int bM15     = ComputeBias(PERIOD_M15, shiftM15);
+
+         string tag  = IntegerToString((long)dayCursor);
+         double step = MathMax((hi - lo) * 0.05, 10 * _Point);
+
+         // Dashed segment marking this day's high, with the label stacked above it
+         string hiName = PFX + "dayhi_" + tag;
+         if(ObjectFind(0, hiName) < 0)
+            ObjectCreate(0, hiName, OBJ_TREND, 0, dayCursor, hi, dayEnd, hi);
+         else
+           {
+            ObjectMove(0, hiName, 0, dayCursor, hi);
+            ObjectMove(0, hiName, 1, dayEnd, hi);
+           }
+         ObjectSetInteger(0, hiName, OBJPROP_COLOR, DayLabelColor);
+         ObjectSetInteger(0, hiName, OBJPROP_STYLE, STYLE_DASH);
+         ObjectSetInteger(0, hiName, OBJPROP_WIDTH, 1);
+         ObjectSetInteger(0, hiName, OBJPROP_RAY_RIGHT, false);
+         ObjectSetInteger(0, hiName, OBJPROP_BACK, true);
+         ObjectSetInteger(0, hiName, OBJPROP_SELECTABLE, false);
+
+         MakeDayText(PFX + "daylbl_h4_"  + tag, dayCursor, hi + step * 3,
+                     "H4:"  + BiasText(bH4),  BiasColor(bH4));
+         MakeDayText(PFX + "daylbl_m15_" + tag, dayCursor, hi + step * 2,
+                     "M15:" + BiasText(bM15), BiasColor(bM15));
+         MakeDayText(PFX + "daylbl_r_"   + tag, dayCursor, hi + step,
+                     StringFormat("R:%d", (int)MathRound((hi - lo) / pip)), DayLabelColor);
+
+         KeepName(keep, hiName);
+         KeepName(keep, PFX + "daylbl_h4_"  + tag);
+         KeepName(keep, PFX + "daylbl_m15_" + tag);
+         KeepName(keep, PFX + "daylbl_r_"   + tag);
+        }
+      dayCursor += 86400;
+     }
+
+   PruneObjects(PFX"daylbl_", keep);
+   PruneObjects(PFX"dayhi_",  keep);
+  }
+
+//+------------------------------------------------------------------+
+string BiasText(int bias)
+  {
+   if(bias > 0) return("HAUSSIER");
+   if(bias < 0) return("BAISSIER");
+   return("NEUTRE");
+  }
+
+color BiasColor(int bias)
+  {
+   if(bias > 0) return(BullishColor);
+   if(bias < 0) return(BearishColor);
+   return(clrSilver);
+  }
+
+//+------------------------------------------------------------------+
+// Returns the name of the currently active session, or "" if none
+string ActiveSessionName()
+  {
+   int sod = SecondsOfDay(BeninTime());
+   SessionDef sessions[];
+   GetSessions(sessions);
+   for(int i = 0; i < ArraySize(sessions); i++)
+     {
+      if(sod >= sessions[i].startSec && sod < sessions[i].endSec)
+         return(sessions[i].name);
+     }
+   return("");
+  }
+
+//+------------------------------------------------------------------+
+void CreatePanel()
+  {
+   if(ObjectFind(0, PANEL_BG) < 0)
+     {
+      ObjectCreate(0, PANEL_BG, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, PANEL_BG, OBJPROP_XDISTANCE, PanelX);
+      ObjectSetInteger(0, PANEL_BG, OBJPROP_YDISTANCE, PanelY);
+      ObjectSetInteger(0, PANEL_BG, OBJPROP_XSIZE, 260);
+      ObjectSetInteger(0, PANEL_BG, OBJPROP_BGCOLOR, PanelBgColor);
+      ObjectSetInteger(0, PANEL_BG, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+      ObjectSetInteger(0, PANEL_BG, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, PANEL_BG, OBJPROP_BACK, false);
+      ObjectSetInteger(0, PANEL_BG, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, PANEL_BG, OBJPROP_COLOR, clrGray);
+     }
+  }
+
+//+------------------------------------------------------------------+
+// Drop labels left over from a taller previous render and size the
+// background to whatever the panel actually drew this pass.
+void FinishPanel(int lineCount)
+  {
+   for(int i = lineCount; i < panelLineCount; i++)
+      ObjectDelete(0, PANEL_PREFIX + IntegerToString(i));
+   panelLineCount = lineCount;
+   ObjectSetInteger(0, PANEL_BG, OBJPROP_YSIZE, 16 + lineCount * 16);
+  }
+
+//+------------------------------------------------------------------+
+void SetPanelLine(int idx, string text, color clr)
+  {
+   string name = PANEL_PREFIX + IntegerToString(idx);
+   if(ObjectFind(0, name) < 0)
+     {
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, PanelX + 8);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 8);
+      ObjectSetString(0, name, OBJPROP_FONT, "Consolas");
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+     }
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, PanelY + 8 + idx * 16);
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+  }
+
+//+------------------------------------------------------------------+
+void UpdatePanel()
+  {
+   double rsiBuf[1], atrBuf[1];
+   if(CopyBuffer(hRSI, 0, 0, 1, rsiBuf) < 1) rsiBuf[0] = 0;
+   if(CopyBuffer(hATR_M15, 0, 0, 1, atrBuf) < 1) atrBuf[0] = 0;
+
+   int biasM15 = ComputeBias(PERIOD_M15);
+   int biasH4  = ComputeBias(PERIOD_H4);
+
+   string activeSession = ActiveSessionName();
+   bool sessionActive = (activeSession != "");
+   bool aligned = (biasM15 != 0 && biasM15 == biasH4);
+   bool entryAllowed = aligned && sessionActive;
+
+   double price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   double atr = atrBuf[0];
+   double tp1, tp2;
+   int dir = (biasM15 != 0) ? biasM15 : biasH4;
+   if(dir >= 0)
+     {
+      tp1 = price + atr * TP1_ATR_Mult;
+      tp2 = price + atr * TP2_ATR_Mult;
+     }
+   else
+     {
+      tp1 = price - atr * TP1_ATR_Mult;
+      tp2 = price - atr * TP2_ATR_Mult;
+     }
+
+   // Journal: one line per transition INTO the allowed state, at most one per
+   // bar. gLastLoggedBar also survives a reload, so re-attaching the indicator
+   // while a signal still stands does not duplicate it.
+   if(LogSignals && entryAllowed && gPrevSignalDir != dir)
+     {
+      datetime barTime = iTime(_Symbol, PERIOD_CURRENT, 0);
+      if(barTime > gLastLoggedBar)
+         LogSignal(barTime, dir, price, atr, tp1, tp2,
+                   activeSession, biasM15, biasH4, rsiBuf[0]);
+     }
+   gPrevSignalDir = entryAllowed ? dir : 0;
+
+   double rangeHi, rangeLo;
+   datetime beninNow = BeninTime();
+   GetRangeHighLow(BeninDayStart(), TimeCurrent(), rangeHi, rangeLo);
+
+   int line = 0;
+   SetPanelLine(line++, _Symbol + "  " + EnumToString((ENUM_TIMEFRAMES)_Period), PanelTextColor);
+   SetPanelLine(line++, TimeToString(beninNow, TIME_DATE|TIME_MINUTES) + " (Bénin)", clrSilver);
+   SetPanelLine(line++, "Session: " + (sessionActive ? activeSession : "aucune"), sessionActive ? clrYellow : clrSilver);
+   SetPanelLine(line++, StringFormat("Range H:%s L:%s", DoubleToString(rangeHi, digits), DoubleToString(rangeLo, digits)), clrSilver);
+   SetPanelLine(line++, " ", clrSilver);
+   SetPanelLine(line++, "Biais M15: " + BiasText(biasM15), BiasColor(biasM15));
+   SetPanelLine(line++, "Biais H4:  " + BiasText(biasH4), BiasColor(biasH4));
+   SetPanelLine(line++, StringFormat("RSI(%d): %.1f   ATR: %s", RSIPeriod, rsiBuf[0], DoubleToString(atr, digits)), clrSilver);
+
+   if(ShowZones)
+     {
+      SetPanelLine(line++, " ", clrSilver);
+      double zHi, zLo, dist;
+
+      if(NearestZone(true, price, zHi, zLo, dist))
+         SetPanelLine(line++, StringFormat("Offre   %s-%s  (%d pips)",
+                      DoubleToString(zLo, digits), DoubleToString(zHi, digits), (int)MathRound(dist)), ColorSupply);
+      else
+         SetPanelLine(line++, "Offre   : aucune au-dessus", clrGray);
+
+      if(NearestZone(false, price, zHi, zLo, dist))
+         SetPanelLine(line++, StringFormat("Demande %s-%s  (%d pips)",
+                      DoubleToString(zLo, digits), DoubleToString(zHi, digits), (int)MathRound(dist)), ColorDemand);
+      else
+         SetPanelLine(line++, "Demande : aucune en dessous", clrGray);
+
+      if(PriceInZone(true, price))
+         SetPanelLine(line++, "Prix DANS une zone d'OFFRE", ColorSupply);
+      else if(PriceInZone(false, price))
+         SetPanelLine(line++, "Prix DANS une zone de DEMANDE", ColorDemand);
+     }
+
+   SetPanelLine(line++, " ", clrSilver);
+   SetPanelLine(line++, StringFormat("TP1 (x%.1f ATR): %s", TP1_ATR_Mult, DoubleToString(tp1, digits)), clrSilver);
+   SetPanelLine(line++, StringFormat("TP2 (x%.1f ATR): %s", TP2_ATR_Mult, DoubleToString(tp2, digits)), clrSilver);
+   SetPanelLine(line++, entryAllowed ? (">>> ENTREE AUTORISEE " + (dir > 0 ? "LONG" : "SHORT") + " <<<") : "En attente...",
+                entryAllowed ? (dir > 0 ? BullishColor : BearishColor) : clrGray);
+
+   FinishPanel(line);
+  }

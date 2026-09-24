@@ -1,0 +1,23 @@
+Significativite de V3 (zone seule)
+Un |t| < 2 signifie : indistinguable de zero.
+
+  IN-SAMPLE  (n=293)
+    scenario     moyenne      SE      t               IC 95%   net 0.30
+    A TP1         +0.058   0.058   0.99   [-0.056 ; +0.173]     +0.028
+    B TP2         +0.044   0.084   0.53   [-0.120 ; +0.208]     +0.014
+    C mixte       +0.050   0.067   0.75   [-0.081 ; +0.180]     +0.020
+    ATR moyen 9.93 pt -> spread 0.30 pt = 0.030 R/trade
+
+  OUT-OF-SAMPLE  (n=130)
+    scenario     moyenne      SE      t               IC 95%   net 0.30
+    A TP1         +0.031   0.088   0.35   [-0.142 ; +0.203]     +0.001
+    B TP2         +0.085   0.127   0.67   [-0.164 ; +0.333]     +0.054
+    C mixte       +0.089   0.102   0.87   [-0.111 ; +0.288]     +0.059
+    ATR moyen 9.95 pt -> spread 0.30 pt = 0.030 R/trade
+
+  TOTAL 15 mois  (n=423)
+    scenario     moyenne      SE      t               IC 95%   net 0.30
+    A TP1         +0.050   0.049   1.02   [-0.046 ; +0.145]     +0.019
+    B TP2         +0.057   0.070   0.81   [-0.080 ; +0.193]     +0.027
+    C mixte       +0.062   0.056   1.11   [-0.047 ; +0.171]     +0.032
+    ATR moyen 9.94 pt -> spread 0.30 pt = 0.030 R/trade

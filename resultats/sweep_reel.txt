@@ -1,0 +1,22 @@
+Sensibilite aux parametres de structure (scenario C, net de spread 0) :
+  lookback  depth     n   total C    moy C
+        15      2   271    +18.12   +0.067
+        15      3    47    +10.47   +0.223
+        15      4    11     +6.85   +0.623
+        20      2   440     +0.69   +0.002
+        20      3   193    -11.50   -0.060   <- defaut
+        20      4    56     +3.13   +0.056
+        25      2   497     +0.15   +0.000
+        25      3   317    -10.89   -0.034
+        25      4   127     -1.32   -0.010
+        30      2   512     +2.44   +0.005
+        30      3   376    +13.94   +0.037
+        30      4   216    +14.51   +0.067
+
+Cout du spread (parametres par defaut, scenario C) :
+  ATR moyen au signal : 8.92 points
+  spread 0.00 pt  ->  cout 0.000 R/trade  ->  esperance nette -0.060 R
+  spread 0.20 pt  ->  cout 0.022 R/trade  ->  esperance nette -0.082 R
+  spread 0.30 pt  ->  cout 0.034 R/trade  ->  esperance nette -0.093 R
+  spread 0.50 pt  ->  cout 0.056 R/trade  ->  esperance nette -0.116 R
+  spread 1.00 pt  ->  cout 0.112 R/trade  ->  esperance nette -0.172 R

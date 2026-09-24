@@ -1,0 +1,18 @@
+==========================================================================
+IN-SAMPLE  2025-06-17 -> 2026-04-30   (20487 bougies)
+OUT-SAMPLE 2026-05-01 -> 2026-09-24   (9513 bougies)
+==========================================================================
+
+--- IN-SAMPLE (calibration) (20487 bougies) ---
+  variante                     n  TP1>stop     espA     espB     espC
+  V1 biais+session+zone        6     33.3%   -0.333   +0.000   -0.167
+  V2 biais+zone                9     44.4%   -0.111   +0.000   -0.083
+  V3 zone seule              293     52.9%   +0.058   +0.044   +0.050
+  V4 reference actuelle      144     43.1%   -0.139   -0.146   -0.131
+
+--- OUT-OF-SAMPLE (validation) (9513 bougies) ---
+  variante                     n  TP1>stop     espA     espB     espC
+  V1 biais+session+zone        1    100.0%   +1.000   +2.000   +1.500
+  V2 biais+zone                2    100.0%   +1.000   +2.000   +1.500
+  V3 zone seule              130     51.5%   +0.031   +0.085   +0.089
+  V4 reference actuelle       47     53.2%   +0.064   +0.404   +0.200
