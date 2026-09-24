@@ -30,9 +30,13 @@ input group "=== Indicateurs ==="
 input int    RSIPeriod = 14;
 input int    ATRPeriod = 14;
 
-input group "=== Take Profit (multiples ATR) ==="
-input double TP1_ATR_Mult = 1.0;
-input double TP2_ATR_Mult = 2.0;
+//--- SL et TP viennent de la structure du prix, pas d'un multiple d'ATR :
+//--- le stop se place au-delà du dernier swing opposé, les cibles sur les
+//--- swings précédents dans le sens du trade.
+input group "=== Niveaux SL / TP (structure) ==="
+input int    LevelsLookback = 150;   // Barres analysées pour trouver les swings
+input int    LevelsDepth    = 3;     // Profondeur de détection des swings
+input double SL_BufferPips  = 0;     // Marge au-delà du swing pour le SL (pips)
 
 input group "=== Affichage ==="
 input color  ColorAsia        = clrDodgerBlue;
@@ -77,7 +81,6 @@ input double AsiaExpandedRatio = 1.0;   // Seuil (x moyenne) au-delà duquel l'a
 
 input group "=== Niveaux du signal ==="
 input bool   FreezeLevels    = true;   // Figer SL/TP1/TP2 au moment du signal
-input double SL_ATR_Mult     = 1.0;    // Stop-loss en multiples d'ATR
 input bool   ShowSignalLines = true;   // Tracer les niveaux figés sur le graphique
 
 input group "=== Journal des signaux ==="
@@ -1049,6 +1052,68 @@ void DrawSignalLines(bool frozen, double tp1, double tp2, double sl)
   }
 
 //+------------------------------------------------------------------+
+// Swings de la période courante, du plus récent au plus ancien.
+void CollectSwings(int lookback, int depth, double &swHigh[], double &swLow[])
+  {
+   ArrayResize(swHigh, 0);
+   ArrayResize(swLow,  0);
+
+   int need = lookback + depth * 2 + 2;
+   double h[], l[];
+   if(CopyHigh(_Symbol, PERIOD_CURRENT, 0, need, h) < need) return;
+   if(CopyLow (_Symbol, PERIOD_CURRENT, 0, need, l) < need) return;
+   ArraySetAsSeries(h, true);
+   ArraySetAsSeries(l, true);
+
+   for(int i = depth; i < lookback + depth; i++)
+     {
+      bool isH = true, isL = true;
+      for(int k = 1; k <= depth; k++)
+        {
+         if(h[i] <= h[i-k] || h[i] <= h[i+k]) isH = false;
+         if(l[i] >= l[i-k] || l[i] >= l[i+k]) isL = false;
+        }
+      if(isH) { int n = ArraySize(swHigh); ArrayResize(swHigh, n+1); swHigh[n] = h[i]; }
+      if(isL) { int n = ArraySize(swLow);  ArrayResize(swLow,  n+1); swLow[n]  = l[i]; }
+     }
+  }
+
+//+------------------------------------------------------------------+
+// SELL : stop au-dessus du dernier plus haut, cibles sur les plus bas
+// précédents. BUY : l'inverse. Renvoie false si la structure ne fournit
+// pas de niveau exploitable — mieux vaut n'afficher rien qu'un chiffre inventé.
+bool StructureLevels(int dir, double price, double &sl, double &tp1, double &tp2)
+  {
+   sl = 0.0; tp1 = 0.0; tp2 = 0.0;
+
+   double swH[], swL[];
+   CollectSwings(LevelsLookback, LevelsDepth, swH, swL);
+   double buf = SL_BufferPips * PipSize();
+
+   if(dir < 0)
+     {
+      for(int i = 0; i < ArraySize(swH); i++)
+         if(swH[i] > price) { sl = swH[i] + buf; break; }
+      for(int i = 0; i < ArraySize(swL); i++)
+         if(swL[i] < price) { tp1 = swL[i]; break; }
+      if(tp1 > 0.0)
+         for(int i = 0; i < ArraySize(swL); i++)
+            if(swL[i] < tp1) { tp2 = swL[i]; break; }
+     }
+   else
+     {
+      for(int i = 0; i < ArraySize(swL); i++)
+         if(swL[i] < price) { sl = swL[i] - buf; break; }
+      for(int i = 0; i < ArraySize(swH); i++)
+         if(swH[i] > price) { tp1 = swH[i]; break; }
+      if(tp1 > 0.0)
+         for(int i = 0; i < ArraySize(swH); i++)
+            if(swH[i] > tp1) { tp2 = swH[i]; break; }
+     }
+   return(sl > 0.0 && tp1 > 0.0);
+  }
+
+//+------------------------------------------------------------------+
 string BiasText(int bias)
   {
    if(bias > 0) return("HAUSSIER");
@@ -1146,11 +1211,10 @@ void UpdatePanel()
    int dir = (biasM15 != 0) ? biasM15 : biasH4;
    int sgn = (dir >= 0) ? 1 : -1;
 
-   // Projection vivante depuis le prix courant : ce qui s'affiche tant
-   // qu'aucun signal n'a fige de niveaux.
-   double liveTP1 = price + sgn * atr * TP1_ATR_Mult;
-   double liveTP2 = price + sgn * atr * TP2_ATR_Mult;
-   double liveSL  = price - sgn * atr * SL_ATR_Mult;
+   // Niveaux issus de la structure, recalculés tant qu'aucun signal ne les
+   // a figés. sgn sert encore à orienter les libellés du panneau.
+   double liveTP1 = 0.0, liveTP2 = 0.0, liveSL = 0.0;
+   StructureLevels(dir, price, liveSL, liveTP1, liveTP2);
 
    // --- contexte asiatique et sweeps, calcules ici pour servir a la fois
    // --- au journal et a l'affichage
@@ -1278,9 +1342,15 @@ void UpdatePanel()
    else
       SetPanelLine(line++, "Projection (aucun signal figé)", clrGray);
 
-   SetPanelLine(line++, StringFormat("SL  (x%.1f ATR): %s", SL_ATR_Mult, DoubleToString(sl,  digits)), clrTomato);
-   SetPanelLine(line++, StringFormat("TP1 (x%.1f ATR): %s", TP1_ATR_Mult, DoubleToString(tp1, digits)), clrSilver);
-   SetPanelLine(line++, StringFormat("TP2 (x%.1f ATR): %s", TP2_ATR_Mult, DoubleToString(tp2, digits)), clrSilver);
+   string slLab = (sgn < 0) ? "dernier haut" : "dernier bas";
+   string tpLab = (sgn < 0) ? "plus bas"      : "plus haut";
+
+   SetPanelLine(line++, sl  > 0.0 ? StringFormat("SL  %s  (%s)",  DoubleToString(sl,  digits), slLab)
+                                  : "SL  : structure absente", sl  > 0.0 ? clrTomato : clrGray);
+   SetPanelLine(line++, tp1 > 0.0 ? StringFormat("TP1 %s  (%s préc.)", DoubleToString(tp1, digits), tpLab)
+                                  : "TP1 : structure absente", tp1 > 0.0 ? clrSilver : clrGray);
+   SetPanelLine(line++, tp2 > 0.0 ? StringFormat("TP2 %s  (%s -2)",    DoubleToString(tp2, digits), tpLab)
+                                  : "TP2 : aucun second swing", tp2 > 0.0 ? clrSilver : clrGray);
    SetPanelLine(line++, entryAllowed ? (">>> ENTREE AUTORISEE " + (dir > 0 ? "LONG" : "SHORT") + " <<<") : "En attente...",
                 entryAllowed ? (dir > 0 ? BullishColor : BearishColor) : clrGray);
 
