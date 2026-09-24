@@ -1,0 +1,23 @@
+AMD avec confirmation par changement de structure (MSS)
+TP a 2R, SL derriere l'extreme du balayage. |t| < 2 => bruit.
+
+-- MSS seul
+    in-sample                      n=112  +0.040 R  (t +0.43)
+    out-of-sample                  n=49   -0.002 R  (t -0.01)
+-- MSS + Asie compressee
+    in-sample                      n=68   -0.080 R  (t -0.70)
+    out-of-sample                  n=34   +0.036 R  (t +0.18)
+-- MSS + H4
+    in-sample                      n=25   +0.205 R  (t +1.07)
+    out-of-sample                  n=8    -0.131 R  (t -0.30)
+-- MSS + Asie + H4
+    in-sample                      n=13   +0.062 R  (t +0.23)
+    out-of-sample                  n=7    -0.040 R  (t -0.08)
+-- SANS MSS (reference)
+    in-sample                      n=170  +0.025 R  (t +0.25)
+    out-of-sample                  n=72   -0.216 R  (t -1.56)
+
+==============================================================
+  MSS seul, 15 mois                n=162  +0.024 R  (t +0.31)
+    tendance de fond haussiere  n=97   -0.029 R  (t -0.31)
+    tendance de fond baissiere  n=62   +0.103 R  (t +0.75)
