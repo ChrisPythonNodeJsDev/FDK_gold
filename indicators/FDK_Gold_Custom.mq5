@@ -70,6 +70,11 @@ input color  ColorSupply       = clrCrimson;
 input color  ColorDemand       = clrDeepSkyBlue;
 input int    ZoneOpacity       = 55;     // 0-255, opacité du remplissage des zones
 
+input group "=== Asiatique / Sweeps ==="
+input bool   ShowAsiaStats     = true;  // Taille de l'asiatique et compteur de sweeps
+input int    AsiaAvgDays       = 10;    // Jours servant de moyenne de référence
+input double AsiaExpandedRatio = 1.0;   // Seuil (x moyenne) au-delà duquel l'asiatique est dite expansée
+
 input group "=== Journal des signaux ==="
 input bool   LogSignals  = true;   // Enregistrer chaque ENTREE AUTORISEE dans un CSV
 input string LogFileName = "";     // Vide = FDK_signaux_<symbole>.csv
@@ -84,6 +89,10 @@ int hATR_Zone = INVALID_HANDLE;      // ATR on the chart timeframe
 int hATR_ZoneHTF = INVALID_HANDLE;   // ATR on the higher timeframe
 datetime lastDrawnDay = 0;
 int      panelLineCount = 0;   // lines drawn on the previous panel render
+
+//--- Cache de la moyenne asiatique (recalculee une fois par jour)
+datetime gAsiaAvgDay  = 0;
+double   gAsiaAvgPips = 0.0;
 
 //--- Signal journal state
 datetime gLastLoggedBar = 0;   // bar already written, guards against duplicates
@@ -909,6 +918,76 @@ void DrawDayLabels()
   }
 
 //+------------------------------------------------------------------+
+// Plage de la session asiatique pour un jour donne (minuit Benin en heure serveur)
+bool AsiaRange(datetime dayStartServer, double &hi, double &lo)
+  {
+   datetime a = dayStartServer + HHMMToSeconds(AsiaStart);
+   datetime b = dayStartServer + HHMMToSeconds(AsiaEnd);
+   if(b <= a)
+      return(false);
+   return(GetRangeHighLow(a, b, hi, lo));
+  }
+
+//+------------------------------------------------------------------+
+// Moyenne de la taille de l'asiatique sur les N jours precedents, en pips.
+// Les jours sans donnees (week-ends, feries) sont simplement ignores.
+double AsiaAvgCached()
+  {
+   datetime today = BeninDayStart();
+   if(today == gAsiaAvgDay)
+      return(gAsiaAvgPips);
+
+   double sum = 0.0;
+   int    n   = 0;
+   for(int d = 1; d <= AsiaAvgDays; d++)
+     {
+      double hi, lo;
+      if(AsiaRange(today - d * 86400, hi, lo) && hi > lo)
+        {
+         sum += (hi - lo) / PipSize();
+         n++;
+        }
+     }
+   gAsiaAvgDay  = today;
+   gAsiaAvgPips = (n > 0 ? sum / n : 0.0);
+   return(gAsiaAvgPips);
+  }
+
+//+------------------------------------------------------------------+
+// Un sweep = un extreme depasse puis referme a l'interieur. On compte les
+// excursions completes, pas les barres : une sortie qui dure cinq bougies
+// avant de rentrer reste un seul sweep.
+int CountSweeps(datetime from, datetime to, double hiLevel, double loLevel,
+                int &upSweeps, int &dnSweeps)
+  {
+   upSweeps = 0;
+   dnSweeps = 0;
+
+   int b1 = iBarShift(_Symbol, PERIOD_CURRENT, from, false);
+   int b2 = iBarShift(_Symbol, PERIOD_CURRENT, to,   false);
+   if(b1 < 0 || b2 < 0)
+      return(0);
+
+   int start = MathMax(b1, b2);      // plus ancienne
+   int end   = MathMin(b1, b2);      // plus recente
+   bool pendUp = false, pendDn = false;
+
+   for(int i = start; i >= end; i--)
+     {
+      double h = iHigh (_Symbol, PERIOD_CURRENT, i);
+      double l = iLow  (_Symbol, PERIOD_CURRENT, i);
+      double c = iClose(_Symbol, PERIOD_CURRENT, i);
+
+      if(h > hiLevel)              pendUp = true;
+      if(pendUp && c < hiLevel)  { upSweeps++; pendUp = false; }
+
+      if(l < loLevel)              pendDn = true;
+      if(pendDn && c > loLevel)  { dnSweeps++; pendDn = false; }
+     }
+   return(upSweeps + dnSweeps);
+  }
+
+//+------------------------------------------------------------------+
 string BiasText(int bias)
   {
    if(bias > 0) return("HAUSSIER");
@@ -1040,7 +1119,48 @@ void UpdatePanel()
    SetPanelLine(line++, " ", clrSilver);
    SetPanelLine(line++, "Biais M15: " + BiasText(biasM15), BiasColor(biasM15));
    SetPanelLine(line++, "Biais H4:  " + BiasText(biasH4), BiasColor(biasH4));
-   SetPanelLine(line++, StringFormat("RSI(%d): %.1f   ATR: %s", RSIPeriod, rsiBuf[0], DoubleToString(atr, digits)), clrSilver);
+   // ATR affiche aussi en pips : c'est l'unite utilisee dans les analyses
+   // publiees, ca evite une conversion mentale a chaque comparaison.
+   SetPanelLine(line++, StringFormat("RSI(%d): %.1f  ATR: %s (%d p)",
+                RSIPeriod, rsiBuf[0], DoubleToString(atr, digits),
+                (int)MathRound(atr / PipSize())), clrSilver);
+
+   if(ShowAsiaStats)
+     {
+      datetime dayStart = BeninDayStart();
+      double   aHi, aLo;
+      bool     asiaDone = (SecondsOfDay(BeninTime()) >= HHMMToSeconds(AsiaEnd));
+
+      if(AsiaRange(dayStart, aHi, aLo) && aHi > aLo)
+        {
+         double pips = (aHi - aLo) / PipSize();
+         double avg  = AsiaAvgCached();
+
+         if(avg > 0.0)
+            SetPanelLine(line++, StringFormat("Asie: %d pips  (x%.2f moy %dj)",
+                         (int)MathRound(pips), pips / avg, AsiaAvgDays), clrSilver);
+         else
+            SetPanelLine(line++, StringFormat("Asie: %d pips", (int)MathRound(pips)), clrSilver);
+
+         if(!asiaDone)
+            SetPanelLine(line++, "  asiatique en cours", clrGray);
+         else if(avg > 0.0 && pips >= avg * AsiaExpandedRatio)
+            SetPanelLine(line++, "  EXPANSEE", clrOrange);
+         else if(avg > 0.0)
+            SetPanelLine(line++, "  NON EXPANSEE", clrSilver);
+
+         if(asiaDone)
+           {
+            int up, dn;
+            int tot = CountSweeps(dayStart + HHMMToSeconds(AsiaEnd), TimeCurrent(),
+                                  aHi, aLo, up, dn);
+            SetPanelLine(line++, StringFormat("Sweeps: %d  (haut %d / bas %d)", tot, up, dn),
+                         tot > 0 ? clrYellow : clrSilver);
+           }
+         else
+            SetPanelLine(line++, "Sweeps: -", clrGray);
+        }
+     }
 
    if(ShowZones)
      {
