@@ -1,0 +1,27 @@
+Modele AMD / Power of 3 — entree a contre-sens du balayage
+TP a 2R, SL au-dela de l'extreme balaye. |t| < 2 => bruit.
+
+-- regle complete (Asie+sweep+H4)
+    in-sample                        n=27   -0.089 R  (t -0.37)
+    out-of-sample                    n=7    +0.613 R  (t +1.06)
+-- sans filtre H4
+    in-sample                        n=99   -0.168 R  (t -1.41)
+    out-of-sample                    n=47   -0.187 R  (t -1.05)
+-- sans filtre Asie
+    in-sample                        n=45   +0.051 R  (t +0.27)
+    out-of-sample                    n=11   +0.052 R  (t +0.12)
+-- sweep seul, contre-sens
+    in-sample                        n=170  +0.025 R  (t +0.25)
+    out-of-sample                    n=72   -0.216 R  (t -1.56)
+-- CONTROLE : sens du sweep
+    in-sample                        n=170  +0.049 R  (t +0.60)
+    out-of-sample                    n=72   +0.184 R  (t +1.52)
+
+==============================================================
+  sweep seul contre-sens, 15 mois    n=245  -0.055 R  (t -0.69)
+
+  sweep seul contre-sens — ventilation
+    tendance de fond   haussier  n=146  +0.003 R  (t +0.02)
+    tendance de fond   baissier  n=96   -0.176 R  (t -1.43)
+    issue du jour      haussier  n=139  -0.069 R  (t -0.65)
+    issue du jour      baissier  n=106  -0.037 R  (t -0.30)
