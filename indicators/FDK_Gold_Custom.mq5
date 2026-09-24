@@ -56,6 +56,7 @@ input bool   ShowDayLabels    = true;    // Afficher biais H4/M15 + range sur ch
 input color  DayLabelColor    = clrCornflowerBlue;
 input int    DayLabelFontSize = 8;
 input int    DayLabelMaxDays   = 10;    // Nb max de journées étiquetées (0 = toutes)
+input int    SessionMaxDays    = 15;    // Nb max de journées de zones de session
 
 //--- Supply/demand zones: a "base" of small candles followed by an impulse
 //--- candle marks an imbalance price often revisits. A zone stays "fraîche"
@@ -108,6 +109,18 @@ int hATR_Zone = INVALID_HANDLE;      // ATR on the chart timeframe
 int hATR_ZoneHTF = INVALID_HANDLE;   // ATR on the higher timeframe
 datetime lastDrawnDay = 0;
 int      panelLineCount = 0;   // lines drawn on the previous panel render
+
+//--- Contexte recalcule UNE FOIS PAR BOUGIE. MT5 interrompt un indicateur
+//--- trop lent ("indicator is too slow") et le graphique se fige : tout ce
+//--- qui lit des barres doit rester hors du chemin appele a chaque tick.
+datetime gCtxBar       = 0;
+int      gCtxBiasM15   = 0, gCtxBiasH4 = 0;
+double   gCtxRSI       = 0.0, gCtxATR   = 0.0;
+bool     gCtxAsiaValid = false, gCtxAsiaDone = false;
+double   gCtxAsiaPips  = 0.0, gCtxAsiaRatio = 0.0;
+int      gCtxSwUp      = 0, gCtxSwDn = 0, gCtxSwTot = 0;
+double   gCtxRangeHi   = 0.0, gCtxRangeLo = 0.0;
+double   gCtxSL        = 0.0, gCtxTP1 = 0.0, gCtxTP2 = 0.0;
 
 //--- Etat des points numerotes de la fenetre du jour
 int    gConfHighs = 0, gConfLows = 0;
@@ -257,6 +270,10 @@ datetime InitLog()
       string first = FileReadString(hr);
       while(!FileIsLineEnding(hr) && !FileIsEnding(hr))
          FileReadString(hr);
+      // StringToTime renvoie la date du jour a minuit pour une chaine
+      // non datee : sans ce filtre, l'en-tete passait pour un signal.
+      if(StringFind(first, ".") < 0 || StringFind(first, ":") < 0)
+         continue;
       datetime t = StringToTime(first);
       if(t > 0)
          last = t;
@@ -438,6 +455,13 @@ int GetSessions(SessionDef &sessions[])
 // Draw session boxes for the visible chart range, one rectangle per session per day
 void DrawSessionBoxes()
   {
+   if(!IntradayTF())
+     {
+      string none[];
+      PruneObjects(PFX"box_", none);
+      return;
+     }
+
    int barsVisible = (int)ChartGetInteger(0, CHART_VISIBLE_BARS);
    int firstVisible = (int)ChartGetInteger(0, CHART_FIRST_VISIBLE_BAR);
    if(barsVisible <= 0)
@@ -459,6 +483,11 @@ void DrawSessionBoxes()
    datetime beninOldest = tStart + off * 3600;
    datetime dayCursor   = (beninOldest - (beninOldest % 86400)) - off * 3600;
    datetime dayLimit    = tEnd;
+
+   // Plafond dur : chaque journee coute quatre balayages de barres.
+   int span = (int)((dayLimit - dayCursor) / 86400) + 1;
+   if(span > SessionMaxDays)
+      dayCursor += (datetime)((span - SessionMaxDays) * 86400);
 
    string keep[];
 
@@ -842,6 +871,16 @@ bool PriceInZone(bool wantSupply, double price)
   }
 
 //+------------------------------------------------------------------+
+// Sessions, asiatique et points numerotes n'ont de sens qu'en intraday :
+// au-dessus de H1 une session tient dans une seule bougie. Sans ce garde-fou,
+// la boucle jour par jour parcourt des centaines de journees sur un
+// graphique D1 et MT5 coupe l'indicateur pour lenteur.
+bool IntradayTF()
+  {
+   return(PeriodSeconds(PERIOD_CURRENT) <= 3600);
+  }
+
+//+------------------------------------------------------------------+
 // One pip. Gold quotes on 2 digits, where a pip is 0.10 (not 0.01).
 double PipSize()
   {
@@ -1010,19 +1049,25 @@ int CountSweeps(datetime from, datetime to, double hiLevel, double loLevel,
 
    int start = MathMax(b1, b2);      // plus ancienne
    int end   = MathMin(b1, b2);      // plus recente
+   int count = start - end + 1;
+   if(count <= 0)
+      return(0);
+
+   // Une copie groupee plutot que trois appels par barre : sur des dizaines
+   // de barres et a chaque rafraichissement, l'ecart est considerable.
+   double h[], l[], c[];
+   if(CopyHigh (_Symbol, PERIOD_CURRENT, end, count, h) < count) return(0);
+   if(CopyLow  (_Symbol, PERIOD_CURRENT, end, count, l) < count) return(0);
+   if(CopyClose(_Symbol, PERIOD_CURRENT, end, count, c) < count) return(0);
+
    bool pendUp = false, pendDn = false;
-
-   for(int i = start; i >= end; i--)
+   for(int i = 0; i < count; i++)        // ordre chronologique
      {
-      double h = iHigh (_Symbol, PERIOD_CURRENT, i);
-      double l = iLow  (_Symbol, PERIOD_CURRENT, i);
-      double c = iClose(_Symbol, PERIOD_CURRENT, i);
+      if(h[i] > hiLevel)             pendUp = true;
+      if(pendUp && c[i] < hiLevel) { upSweeps++; pendUp = false; }
 
-      if(h > hiLevel)              pendUp = true;
-      if(pendUp && c < hiLevel)  { upSweeps++; pendUp = false; }
-
-      if(l < loLevel)              pendDn = true;
-      if(pendDn && c > loLevel)  { dnSweeps++; pendDn = false; }
+      if(l[i] < loLevel)             pendDn = true;
+      if(pendDn && c[i] > loLevel) { dnSweeps++; pendDn = false; }
      }
    return(upSweeps + dnSweeps);
   }
@@ -1139,7 +1184,7 @@ void BuildConfirmPoints()
    string keep[];
    gConfHighs = 0; gConfLows = 0; gConfState = 0; gConfLast = "";
 
-   if(!ShowConfirmPoints)
+   if(!ShowConfirmPoints || !IntradayTF())
      {
       PruneObjects(PFX"cp_", keep);
       return;
@@ -1306,15 +1351,67 @@ void SetPanelLine(int idx, string text, color clr)
   }
 
 //+------------------------------------------------------------------+
-void UpdatePanel()
+// Tout ce qui lit des barres est regroupe ici et ne tourne qu'une fois par
+// bougie. UpdatePanel se contente ensuite de mettre en page.
+void RefreshContext()
   {
    double rsiBuf[1], atrBuf[1];
-   if(CopyBuffer(hRSI, 0, 0, 1, rsiBuf) < 1) rsiBuf[0] = 0;
+   if(CopyBuffer(hRSI,     0, 0, 1, rsiBuf) < 1) rsiBuf[0] = 0;
    if(CopyBuffer(hATR_M15, 0, 0, 1, atrBuf) < 1) atrBuf[0] = 0;
+   gCtxRSI = rsiBuf[0];
+   gCtxATR = atrBuf[0];
 
-   int biasM15 = ComputeBias(PERIOD_M15);
-   int biasH4  = ComputeBias(PERIOD_H4);
+   gCtxBiasM15 = ComputeBias(PERIOD_M15);
+   gCtxBiasH4  = ComputeBias(PERIOD_H4);
 
+   double price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   int    dir   = (gCtxBiasM15 != 0) ? gCtxBiasM15 : gCtxBiasH4;
+   gCtxSL = 0.0; gCtxTP1 = 0.0; gCtxTP2 = 0.0;
+   StructureLevels(dir, price, gCtxSL, gCtxTP1, gCtxTP2);
+
+   datetime dayStart = BeninDayStart();
+   gCtxRangeHi = 0.0; gCtxRangeLo = 0.0;
+   GetRangeHighLow(dayStart, TimeCurrent(), gCtxRangeHi, gCtxRangeLo);
+
+   gCtxAsiaValid = false; gCtxAsiaDone = false;
+   gCtxAsiaPips  = 0.0;   gCtxAsiaRatio = 0.0;
+   gCtxSwUp = 0; gCtxSwDn = 0; gCtxSwTot = 0;
+
+   if(ShowAsiaStats && IntradayTF())
+     {
+      double asiaHi = 0.0, asiaLo = 0.0;
+      gCtxAsiaDone  = (SecondsOfDay(BeninTime()) >= HHMMToSeconds(AsiaEnd));
+      gCtxAsiaValid = (AsiaRange(dayStart, asiaHi, asiaLo) && asiaHi > asiaLo);
+      if(gCtxAsiaValid)
+        {
+         gCtxAsiaPips = (asiaHi - asiaLo) / PipSize();
+         double avg   = AsiaAvgCached();
+         gCtxAsiaRatio = (avg > 0.0 ? gCtxAsiaPips / avg : 0.0);
+         if(gCtxAsiaDone)
+            gCtxSwTot = CountSweeps(dayStart + HHMMToSeconds(AsiaEnd), TimeCurrent(),
+                                    asiaHi, asiaLo, gCtxSwUp, gCtxSwDn);
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+void UpdatePanel()
+  {
+   datetime curBar = iTime(_Symbol, PERIOD_CURRENT, 0);
+   if(curBar != gCtxBar)
+     {
+      gCtxBar = curBar;
+      RefreshContext();
+     }
+
+   int    biasM15 = gCtxBiasM15,  biasH4 = gCtxBiasH4;
+   double atr = gCtxATR, rsi = gCtxRSI;
+   bool   asiaValid = gCtxAsiaValid, asiaDone = gCtxAsiaDone;
+   double asiaPips  = gCtxAsiaPips,  asiaRatio = gCtxAsiaRatio;
+   int    swUp = gCtxSwUp, swDn = gCtxSwDn, swTot = gCtxSwTot;
+
+   // Seuls le prix et la session se rafraichissent a chaque tick : ni l'un
+   // ni l'autre ne lit de barres.
    string activeSession = ActiveSessionName();
    bool sessionActive = (activeSession != "");
    bool aligned = (biasM15 != 0 && biasM15 == biasH4);
@@ -1322,36 +1419,10 @@ void UpdatePanel()
 
    double price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
-   double atr = atrBuf[0];
    int dir = (biasM15 != 0) ? biasM15 : biasH4;
    int sgn = (dir >= 0) ? 1 : -1;
 
-   // Niveaux issus de la structure, recalculés tant qu'aucun signal ne les
-   // a figés. sgn sert encore à orienter les libellés du panneau.
-   double liveTP1 = 0.0, liveTP2 = 0.0, liveSL = 0.0;
-   StructureLevels(dir, price, liveSL, liveTP1, liveTP2);
-
-   // --- contexte asiatique et sweeps, calcules ici pour servir a la fois
-   // --- au journal et a l'affichage
-   datetime dayStart  = BeninDayStart();
-   bool   asiaValid   = false, asiaDone = false;
-   double asiaHi = 0.0, asiaLo = 0.0, asiaPips = 0.0, asiaRatio = 0.0;
-   int    swUp = 0, swDn = 0, swTot = 0;
-
-   if(ShowAsiaStats)
-     {
-      asiaDone  = (SecondsOfDay(BeninTime()) >= HHMMToSeconds(AsiaEnd));
-      asiaValid = (AsiaRange(dayStart, asiaHi, asiaLo) && asiaHi > asiaLo);
-      if(asiaValid)
-        {
-         asiaPips   = (asiaHi - asiaLo) / PipSize();
-         double avg = AsiaAvgCached();
-         asiaRatio  = (avg > 0.0 ? asiaPips / avg : 0.0);
-         if(asiaDone)
-            swTot = CountSweeps(dayStart + HHMMToSeconds(AsiaEnd), TimeCurrent(),
-                                asiaHi, asiaLo, swUp, swDn);
-        }
-     }
+   double liveSL = gCtxSL, liveTP1 = gCtxTP1, liveTP2 = gCtxTP2;
 
    // Journal: one line per transition INTO the allowed state, at most one per
    // bar. gLastLoggedBar also survives a reload, so re-attaching the indicator
@@ -1372,7 +1443,7 @@ void UpdatePanel()
 
          if(LogSignals)
             LogSignal(barTime, dir, price, atr, gSigTP1, gSigTP2, gSigSL,
-                      activeSession, biasM15, biasH4, rsiBuf[0],
+                      activeSession, biasM15, biasH4, rsi,
                       asiaPips, asiaRatio, swUp, swDn);
         }
      }
@@ -1387,9 +1458,8 @@ void UpdatePanel()
 
    DrawSignalLines(frozen, tp1, tp2, sl);
 
-   double rangeHi, rangeLo;
+   double   rangeHi  = gCtxRangeHi, rangeLo = gCtxRangeLo;
    datetime beninNow = BeninTime();
-   GetRangeHighLow(BeninDayStart(), TimeCurrent(), rangeHi, rangeLo);
 
    int line = 0;
    SetPanelLine(line++, _Symbol + "  " + EnumToString((ENUM_TIMEFRAMES)_Period), PanelTextColor);
@@ -1402,7 +1472,7 @@ void UpdatePanel()
    // ATR affiche aussi en pips : c'est l'unite utilisee dans les analyses
    // publiees, ca evite une conversion mentale a chaque comparaison.
    SetPanelLine(line++, StringFormat("RSI(%d): %.1f  ATR: %s (%d p)",
-                RSIPeriod, rsiBuf[0], DoubleToString(atr, digits),
+                RSIPeriod, rsi, DoubleToString(atr, digits),
                 (int)MathRound(atr / PipSize())), clrSilver);
 
    if(ShowConfirmPoints && (gConfHighs > 0 || gConfLows > 0))
