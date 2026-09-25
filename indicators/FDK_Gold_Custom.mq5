@@ -122,6 +122,7 @@ double   gCtxAsiaPips  = 0.0, gCtxAsiaRatio = 0.0;
 int      gCtxSwUp      = 0, gCtxSwDn = 0, gCtxSwTot = 0;
 double   gCtxRangeHi   = 0.0, gCtxRangeLo = 0.0;
 double   gCtxSL        = 0.0, gCtxTP1 = 0.0, gCtxTP2 = 0.0;
+bool     gCtxValid     = false;   // tampons indicateurs prets ?
 
 //--- Etat des points numerotes de la fenetre du jour
 int    gConfHighs = 0, gConfLows = 0;
@@ -1362,11 +1363,15 @@ void SetPanelLine(int idx, string text, color clr)
 // bougie. UpdatePanel se contente ensuite de mettre en page.
 void RefreshContext()
   {
+   // Au rattachement, les tampons RSI/ATR ne sont pas encore calculés.
+   // Journaliser un ATR à 0 corromprait la ligne : on marque le contexte
+   // invalide et on s'abstient tant qu'il ne l'est pas.
    double rsiBuf[1], atrBuf[1];
-   if(CopyBuffer(hRSI,     0, 0, 1, rsiBuf) < 1) rsiBuf[0] = 0;
-   if(CopyBuffer(hATR_M15, 0, 0, 1, atrBuf) < 1) atrBuf[0] = 0;
-   gCtxRSI = rsiBuf[0];
-   gCtxATR = atrBuf[0];
+   bool okRSI = (CopyBuffer(hRSI,     0, 0, 1, rsiBuf) >= 1);
+   bool okATR = (CopyBuffer(hATR_M15, 0, 0, 1, atrBuf) >= 1);
+   gCtxValid = (okRSI && okATR && atrBuf[0] > 0.0);
+   gCtxRSI = okRSI ? rsiBuf[0] : 0.0;
+   gCtxATR = okATR ? atrBuf[0] : 0.0;
 
    gCtxBiasM15 = ComputeBias(PERIOD_M15);
    gCtxBiasH4  = ComputeBias(PERIOD_H4);
@@ -1434,7 +1439,7 @@ void UpdatePanel()
    // Journal: one line per transition INTO the allowed state, at most one per
    // bar. gLastLoggedBar also survives a reload, so re-attaching the indicator
    // while a signal still stands does not duplicate it.
-   if(entryAllowed && gPrevSignalDir != dir)
+   if(entryAllowed && gPrevSignalDir != dir && gCtxValid)
      {
       datetime barTime = iTime(_Symbol, PERIOD_CURRENT, 0);
       if(barTime > gLastLoggedBar)
@@ -1541,8 +1546,12 @@ void UpdatePanel()
 
    SetPanelLine(line++, " ", clrSilver);
    if(frozen)
-      SetPanelLine(line++, StringFormat("Niveaux figés — signal %s",
-                   TimeToString(gSigTime, TIME_MINUTES)), clrAqua);
+      // gSigTime est une heure SERVEUR ; tout le panneau est en heure Bénin.
+      // Le prix du signal est affiché car sans lui on ne peut pas juger si
+      // entrer maintenant offre encore le même rapport gain/risque.
+      SetPanelLine(line++, StringFormat("Figé %s @ %s",
+                   TimeToString(gSigTime + BeninOffsetHours()*3600, TIME_MINUTES),
+                   DoubleToString(gSigPrice, digits)), clrAqua);
    else
       SetPanelLine(line++, "Projection (aucun signal figé)", clrGray);
 

@@ -1,0 +1,15 @@
+AMD + MSS : stop et entree croises — TP a 2R
+|t| < 2 => indistinguable de zero
+
+-- stop swing / entree cassure
+    in-sample                            n=115  +0.038 R  (t +0.42)   risque median 25.05 pts
+    out-of-sample                        n=50   -0.011 R  (t -0.07)   risque median 34.60 pts
+-- stop swing / entree retrait
+    in-sample                            n=86   +0.081 R  (t +0.69)   risque median 20.66 pts
+    out-of-sample                        n=39   -0.136 R  (t -0.91)   risque median 28.68 pts
+-- stop session / entree cassure
+    in-sample                            n=115  -0.088 R  (t -0.86)   risque median 16.74 pts
+    out-of-sample                        n=50   -0.128 R  (t -0.83)   risque median 19.44 pts
+-- stop session / entree retrait
+    in-sample                            n=86   -0.256 R  (t -2.28)   risque median 11.39 pts
+    out-of-sample                        n=39   -0.391 R  (t -2.77)   risque median 13.60 pts
