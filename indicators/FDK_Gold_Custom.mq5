@@ -85,6 +85,9 @@ input double AsiaExpandedRatio = 1.0;   // Seuil (x moyenne) au-delà duquel l'a
 //--- les swings, et la relation entre le #1 et le #2 fait "confirmation".
 //--- Mesuree sur 15 mois : perdante. Conservee comme outil de lecture et
 //--- pour verifier si l'interpretation elle-meme est correcte.
+input group "=== Rafraîchissement ==="
+input int    PanelRefreshMs = 500;   // Intervalle mini entre deux mises à jour (ms)
+
 input group "=== Commentaire (panneau droit) ==="
 input bool   ShowComment    = true;   // Panneau de commentaire à droite
 input int    CommentX       = 10;     // Distance au bord droit
@@ -129,6 +132,7 @@ int      cmtLineCount   = 0;   // idem pour le panneau de commentaire
 string gPanelTxt[MAXLINES]; color gPanelClr[MAXLINES];
 string gCmtTxt[MAXLINES];   color gCmtClr[MAXLINES];
 bool   gDirty = false;      // un objet a-t-il réellement changé ?
+uint   gLastPanelMs = 0;    // dernier rafraîchissement des panneaux
 
 //--- Décalage horaire mis en cache : TimeGMT() était appelé plusieurs fois
 //--- par tick via BeninTime().
@@ -364,7 +368,9 @@ void UpdateAll()
    int      firstVis = (int)ChartGetInteger(0, CHART_FIRST_VISIBLE_BAR);
    int      visBars  = (int)ChartGetInteger(0, CHART_VISIBLE_BARS);
 
-   if(curBar != gLastBar || firstVis != gLastFirstVisible || visBars != gLastVisibleBars)
+   bool structural = (curBar != gLastBar || firstVis != gLastFirstVisible
+                      || visBars != gLastVisibleBars);
+   if(structural)
      {
       gLastBar          = curBar;
       gLastFirstVisible = firstVis;
@@ -378,11 +384,22 @@ void UpdateAll()
       gDirty = true;
      }
 
-   DrawRangeLines();   // cheap, moves two lines in place
-   UpdatePanel();
+   // Les lignes dépendant du prix — gain/risque, distance aux zones,
+   // projection — changent à CHAQUE tick. Détecter les changements ne
+   // suffisait donc pas : il faut borner la fréquence. Au-delà de deux
+   // rafraîchissements par seconde, on ne gagne rien en lisibilité et on
+   // empêche le graphique de dessiner la bougie en cours.
+   uint now = GetTickCount();
+   if(now < gLastPanelMs)
+      gLastPanelMs = now;                    // compteur rebouclé
 
-   // Un ChartRedraw par tick repeint tout le graphique et empeche la bougie
-   // en cours de s'animer. On ne redessine que si un objet a change.
+   if(structural || now - gLastPanelMs >= (uint)MathMax(0, PanelRefreshMs))
+     {
+      gLastPanelMs = now;
+      DrawRangeLines();
+      UpdatePanel();
+     }
+
    if(gDirty)
      {
       ChartRedraw(0);
@@ -591,11 +608,11 @@ bool GetRangeHighLow(datetime from, datetime to, double &hi, double &lo)
 // Draw today's range high/low horizontal dashed lines
 void DrawRangeLines()
   {
-   datetime dayStart = BeninDayStart();
-   datetime dayEnd   = TimeCurrent();
-
-   double hi, lo;
-   if(!GetRangeHighLow(dayStart, dayEnd, hi, lo))
+   // Valeurs issues du cache : recalculer la plage du jour balayait une
+   // centaine de barres à chaque passage, pour deux lignes qui ne bougent
+   // qu'aux extrêmes de la journée.
+   double hi = gCtxRangeHi, lo = gCtxRangeLo;
+   if(hi <= 0.0 || lo <= 0.0 || hi <= lo)
       return;
 
    DrawHLine(PFX"line_high", hi, clrRed, "Range High");
