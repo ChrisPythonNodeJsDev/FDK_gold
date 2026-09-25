@@ -85,6 +85,11 @@ input double AsiaExpandedRatio = 1.0;   // Seuil (x moyenne) au-delà duquel l'a
 //--- les swings, et la relation entre le #1 et le #2 fait "confirmation".
 //--- Mesuree sur 15 mois : perdante. Conservee comme outil de lecture et
 //--- pour verifier si l'interpretation elle-meme est correcte.
+//--- Mesure sur 15 mois : un seuil a 1.5 conserve 41 % des configurations,
+//--- 1.0 en conserve 53 %. Le filtre durcit sans steriliser.
+input group "=== Filtre gain/risque ==="
+input double MinRR = 1.5;   // R:R mini sur TP1 pour autoriser l'entrée (0 = désactivé)
+
 input group "=== Rafraîchissement ==="
 input int    PanelRefreshMs = 500;   // Intervalle mini entre deux mises à jour (ms)
 
@@ -284,6 +289,7 @@ datetime InitLog()
         }
       FileWrite(hw, "bar_time_serveur", "tick_time_serveur", "heure_benin",
                 "symbole", "periode", "sens", "prix", "atr", "tp1", "tp2", "sl",
+                "rr_tp1", "statut", "motif",
                 "session", "biais_m15", "biais_h4", "rsi",
                 "asie_pips", "asie_ratio", "sweeps_haut", "sweeps_bas");
       FileClose(hw);
@@ -317,7 +323,8 @@ datetime InitLog()
 
 //+------------------------------------------------------------------+
 void LogSignal(datetime barTime, int dir, double price, double atr,
-               double tp1, double tp2, double sl, string session,
+               double tp1, double tp2, double sl, double rr,
+               string statut, string motif, string session,
                int bM15, int bH4, double rsi,
                double asiaPips, double asiaRatio, int swUp, int swDn)
   {
@@ -343,6 +350,9 @@ void LogSignal(datetime barTime, int dir, double price, double atr,
              DoubleToString(tp1,   dg),
              DoubleToString(tp2,   dg),
              DoubleToString(sl,    dg),
+             DoubleToString(rr, 2),
+             statut,
+             motif,
              session,
              IntegerToString(bM15),
              IntegerToString(bH4),
@@ -354,9 +364,10 @@ void LogSignal(datetime barTime, int dir, double price, double atr,
    FileClose(h);
 
    gLastLoggedBar = barTime;
-   PrintFormat("FDK: signal %s enregistre (%s, %s)",
+   PrintFormat("FDK: %s %s (%s, %s)%s", statut,
                dir > 0 ? "LONG" : "SHORT", session,
-               TimeToString(barTime, TIME_DATE|TIME_MINUTES));
+               TimeToString(barTime, TIME_DATE|TIME_MINUTES),
+               motif == "" ? "" : " — " + motif);
   }
 
 //+------------------------------------------------------------------+
@@ -1570,17 +1581,38 @@ void UpdatePanel()
 
    double liveSL = gCtxSL, liveTP1 = gCtxTP1, liveTP2 = gCtxTP2;
 
+   // Rapport gain/risque du setup courant : c'est lui qui distingue un bon
+   // signal d'un mauvais, bien plus que le sens choisi.
+   double rr = 0.0;
+   if(liveSL > 0.0 && liveTP1 > 0.0)
+     {
+      double rk = MathAbs(price - liveSL), rw = MathAbs(liveTP1 - price);
+      if(rk > 0.0) rr = rw / rk;
+     }
+
+   // Un signal aligné mais au rapport insuffisant est REJETÉ, et le rejet
+   // est journalisé : un refus silencieux ne se mesure pas.
+   string motif = "";
+   if(entryAllowed && MinRR > 0.0 && rr > 0.0 && rr < MinRR)
+     {
+      entryAllowed = false;
+      motif = StringFormat("RR_INSUFFISANT_%.2f", rr);
+     }
+
    // Journal: one line per transition INTO the allowed state, at most one per
    // bar. gLastLoggedBar also survives a reload, so re-attaching the indicator
    // while a signal still stands does not duplicate it.
-   if(entryAllowed && gPrevSignalDir != dir && gCtxValid)
+   if((entryAllowed || motif != "") && gPrevSignalDir != dir && gCtxValid)
      {
       datetime barTime = iTime(_Symbol, PERIOD_CURRENT, 0);
       if(barTime > gLastLoggedBar)
         {
          // Les niveaux sont fixes une fois pour toutes ici, au prix du signal.
-         gSigTime  = barTime;
-         gSigDir   = dir;
+         if(entryAllowed)
+           {
+            gSigTime = barTime;
+            gSigDir  = dir;
+           }
          gSigPrice = price;
          gSigATR   = atr;
          gSigTP1   = liveTP1;
@@ -1588,7 +1620,8 @@ void UpdatePanel()
          gSigSL    = liveSL;
 
          if(LogSignals)
-            LogSignal(barTime, dir, price, atr, gSigTP1, gSigTP2, gSigSL,
+            LogSignal(barTime, dir, price, atr, gSigTP1, gSigTP2, gSigSL, rr,
+                      motif == "" ? "AUTORISE" : "REJETE", motif,
                       activeSession, biasM15, biasH4, rsi,
                       asiaPips, asiaRatio, swUp, swDn);
         }
@@ -1698,6 +1731,9 @@ void UpdatePanel()
                                   : "TP1 : structure absente", tp1 > 0.0 ? clrSilver : clrGray);
    SetPanelLine(line++, tp2 > 0.0 ? StringFormat("TP2 %s  (%s -2)",    DoubleToString(tp2, digits), tpLab)
                                   : "TP2 : aucun second swing", tp2 > 0.0 ? clrSilver : clrGray);
+   if(rr > 0.0)
+      SetPanelLine(line++, StringFormat("R:R %.2f   (mini %.2f)", rr, MinRR),
+                   (MinRR <= 0.0 || rr >= MinRR) ? clrLightGreen : clrTomato);
    SetPanelLine(line++, entryAllowed ? (">>> ENTREE AUTORISEE " + (dir > 0 ? "LONG" : "SHORT") + " <<<") : "En attente...",
                 entryAllowed ? (dir > 0 ? BullishColor : BearishColor) : clrGray);
 
@@ -1715,6 +1751,8 @@ void UpdatePanel()
    if(entryAllowed)
       SetCommentLine(cl++, ">> ENTREE AUTORISEE : " + (dir > 0 ? "ACHAT" : "VENTE"),
                      dir > 0 ? BullishColor : BearishColor);
+   else if(motif != "")
+      SetCommentLine(cl++, ">> SIGNAL REJETE : rapport insuffisant", clrTomato);
    else
       SetCommentLine(cl++, ">> PAS D'ENTREE POUR L'INSTANT", clrGray);
    SetCommentLine(cl++, " ", clrSilver);
@@ -1735,14 +1773,8 @@ void UpdatePanel()
    else
       SetCommentLine(cl++, " NON Biais M15 et H4 s'opposent", clrTomato);
 
-   // Rapport gain/risque : c'est la mesure qui distingue un bon setup
-   // d'un mauvais, bien plus que le taux de reussite.
-   double rr = 0.0;
-   if(sl > 0.0 && tp1 > 0.0)
-     {
-      double risk = MathAbs(price - sl), rew = MathAbs(tp1 - price);
-      if(risk > 0.0) rr = rew / risk;
-     }
+   // rr est calculé plus haut : c'est lui qui a servi à décider, le
+   // commentaire doit montrer exactement la valeur qui a tranché.
    if(rr > 0.0)
      {
       color rc = (rr >= 1.5) ? clrLightGreen : (rr >= 1.0 ? clrOrange : clrTomato);

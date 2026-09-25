@@ -1,0 +1,17 @@
+Stop structurel mesure sur 6759 configurations (15 mois)
+
+Largeur du stop, en multiples d'ATR
+  mediane         1.57 x ATR
+  1er quartile    0.83
+  3e quartile     2.58
+  9e decile       3.81
+  au-dela de 2 x ATR : 37.9 %
+  au-dela de 3 x ATR : 17.9 %
+  au-dela de 4 x ATR :  8.5 %
+  au-dela de 5 x ATR :  3.3 %
+
+Rapport gain/risque sur TP1
+  mediane         1.10
+  signaux survivant a un filtre R:R >= 1.0 : 53.0 %
+  signaux survivant a un filtre R:R >= 1.5 : 41.0 %
+  signaux survivant a un filtre R:R >= 2.0 : 33.3 %
