@@ -85,6 +85,13 @@ input double AsiaExpandedRatio = 1.0;   // Seuil (x moyenne) au-delà duquel l'a
 //--- les swings, et la relation entre le #1 et le #2 fait "confirmation".
 //--- Mesuree sur 15 mois : perdante. Conservee comme outil de lecture et
 //--- pour verifier si l'interpretation elle-meme est correcte.
+input group "=== Commentaire (panneau droit) ==="
+input bool   ShowComment    = true;   // Panneau de commentaire à droite
+input int    CommentX       = 10;     // Distance au bord droit
+input int    CommentY       = 10;
+input int    CommentWidth   = 320;
+input color  CommentBgColor = clrBlack;
+
 input group "=== Points numérotés (fenêtre) ==="
 input bool   ShowConfirmPoints  = true;
 input int    ConfirmWindowStart = 1100;  // Début de fenêtre, HHMM heure Bénin
@@ -104,12 +111,15 @@ input string LogFileName = "";     // Vide = FDK_signaux_<symbole>.csv
 #define PFX "FDKG_"
 #define PANEL_BG    PFX"panel_bg"
 #define PANEL_PREFIX PFX"panel_line_"
+#define CMT_BG       PFX"cmt_bg"
+#define CMT_PREFIX   PFX"cmt_line_"
 
 int hRSI, hATR_M15;
 int hATR_Zone = INVALID_HANDLE;      // ATR on the chart timeframe
 int hATR_ZoneHTF = INVALID_HANDLE;   // ATR on the higher timeframe
 datetime lastDrawnDay = 0;
 int      panelLineCount = 0;   // lines drawn on the previous panel render
+int      cmtLineCount   = 0;   // idem pour le panneau de commentaire
 
 //--- Contexte recalcule UNE FOIS PAR BOUGIE. MT5 interrompt un indicateur
 //--- trop lent ("indicator is too slow") et le graphique se fige : tout ce
@@ -1341,6 +1351,50 @@ void FinishPanel(int lineCount)
   }
 
 //+------------------------------------------------------------------+
+// Panneau droit : il ne montre aucun chiffre nouveau, il dit en clair ce
+// que ceux de gauche signifient, et surtout POURQUOI il y a entrée ou non.
+void SetCommentLine(int idx, string text, color clr)
+  {
+   string name = CMT_PREFIX + IntegerToString(idx);
+   if(ObjectFind(0, name) < 0)
+     {
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_LEFT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, CommentX + CommentWidth - 10);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 8);
+      ObjectSetString (0, name, OBJPROP_FONT, "Consolas");
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+     }
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, CommentY + 8 + idx * 16);
+   ObjectSetString (0, name, OBJPROP_TEXT, text);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+  }
+
+//+------------------------------------------------------------------+
+void FinishComment(int n)
+  {
+   for(int i = n; i < cmtLineCount; i++)
+      ObjectDelete(0, CMT_PREFIX + IntegerToString(i));
+   cmtLineCount = n;
+
+   if(ObjectFind(0, CMT_BG) < 0)
+     {
+      ObjectCreate(0, CMT_BG, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, CMT_BG, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+      ObjectSetInteger(0, CMT_BG, OBJPROP_XDISTANCE, CommentX + CommentWidth);
+      ObjectSetInteger(0, CMT_BG, OBJPROP_YDISTANCE, CommentY);
+      ObjectSetInteger(0, CMT_BG, OBJPROP_XSIZE, CommentWidth);
+      ObjectSetInteger(0, CMT_BG, OBJPROP_BGCOLOR, CommentBgColor);
+      ObjectSetInteger(0, CMT_BG, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+      ObjectSetInteger(0, CMT_BG, OBJPROP_COLOR, clrGray);
+      ObjectSetInteger(0, CMT_BG, OBJPROP_BACK, false);
+      ObjectSetInteger(0, CMT_BG, OBJPROP_SELECTABLE, false);
+     }
+   ObjectSetInteger(0, CMT_BG, OBJPROP_YSIZE, 16 + n * 16);
+  }
+
+//+------------------------------------------------------------------+
 void SetPanelLine(int idx, string text, color clr)
   {
    string name = PANEL_PREFIX + IntegerToString(idx);
@@ -1568,4 +1622,107 @@ void UpdatePanel()
                 entryAllowed ? (dir > 0 ? BullishColor : BearishColor) : clrGray);
 
    FinishPanel(line);
+
+   //--- Panneau droit : la même information, en clair
+   if(!ShowComment)
+     {
+      FinishComment(0);
+      return;
+     }
+
+   int cl = 0;
+
+   if(entryAllowed)
+      SetCommentLine(cl++, ">> ENTREE AUTORISEE : " + (dir > 0 ? "ACHAT" : "VENTE"),
+                     dir > 0 ? BullishColor : BearishColor);
+   else
+      SetCommentLine(cl++, ">> PAS D'ENTREE POUR L'INSTANT", clrGray);
+   SetCommentLine(cl++, " ", clrSilver);
+
+   SetCommentLine(cl++, "CONDITIONS", PanelTextColor);
+
+   if(sessionActive)
+      SetCommentLine(cl++, " OK  Session " + activeSession + " ouverte", clrLightGreen);
+   else
+      SetCommentLine(cl++, " NON Hors session : le marche n'est pas", clrTomato);
+   if(!sessionActive)
+      SetCommentLine(cl++, "     dans une fenetre tradable", clrTomato);
+
+   if(aligned)
+      SetCommentLine(cl++, " OK  Biais M15 et H4 alignes (" + BiasText(dir) + ")", clrLightGreen);
+   else if(biasM15 == 0)
+      SetCommentLine(cl++, " NON Biais M15 neutre : pas de direction", clrTomato);
+   else
+      SetCommentLine(cl++, " NON Biais M15 et H4 s'opposent", clrTomato);
+
+   // Rapport gain/risque : c'est la mesure qui distingue un bon setup
+   // d'un mauvais, bien plus que le taux de reussite.
+   double rr = 0.0;
+   if(sl > 0.0 && tp1 > 0.0)
+     {
+      double risk = MathAbs(price - sl), rew = MathAbs(tp1 - price);
+      if(risk > 0.0) rr = rew / risk;
+     }
+   if(rr > 0.0)
+     {
+      color rc = (rr >= 1.5) ? clrLightGreen : (rr >= 1.0 ? clrOrange : clrTomato);
+      SetCommentLine(cl++, StringFormat("%s Gain/risque TP1 : %.2f pour 1",
+                     rr >= 1.0 ? " OK " : " NON", rr), rc);
+      SetCommentLine(cl++, StringFormat("     equilibre a %.0f%% de reussite",
+                     100.0 / (1.0 + rr)), rc);
+     }
+   else
+      SetCommentLine(cl++, " --  Niveaux indisponibles", clrGray);
+
+   SetCommentLine(cl++, " ", clrSilver);
+   SetCommentLine(cl++, "ETAT DU MARCHE", PanelTextColor);
+
+   if(ShowAsiaStats && asiaValid)
+     {
+      if(!asiaDone)
+         SetCommentLine(cl++, " Asiatique encore en formation", clrGray);
+      else if(asiaRatio >= AsiaExpandedRatio)
+         SetCommentLine(cl++, StringFormat(" Asiatique expansee (x%.2f) : energie", asiaRatio), clrOrange);
+      else
+         SetCommentLine(cl++, StringFormat(" Asiatique compressee (x%.2f) : reserve", asiaRatio), clrLightGreen);
+
+      if(asiaDone)
+        {
+         if(swTot == 0)
+            SetCommentLine(cl++, " Aucun balayage depuis l'asiatique", clrSilver);
+         else if(swUp > 0 && swDn > 0)
+            SetCommentLine(cl++, StringFormat(" Balayages des deux cotes (%d/%d) :", swUp, swDn), clrOrange);
+         else if(swDn > 0)
+            SetCommentLine(cl++, StringFormat(" %d balayage(s) du bas : liquidite", swDn), clrYellow);
+         else
+            SetCommentLine(cl++, StringFormat(" %d balayage(s) du haut : liquidite", swUp), clrYellow);
+
+         if(swUp > 0 && swDn > 0)
+            SetCommentLine(cl++, "   marche indecis", clrOrange);
+         else if(swTot > 0)
+            SetCommentLine(cl++, "   prise sous/sur l'asiatique", clrYellow);
+        }
+     }
+
+   if(ShowConfirmPoints && gConfState != 0)
+      SetCommentLine(cl++, StringFormat(" %s : structure %s", gConfLast,
+                     gConfState < 0 ? "baissiere" : "haussiere"),
+                     gConfState < 0 ? BearishColor : BullishColor);
+
+   if(ShowZones)
+     {
+      if(PriceInZone(true, price))
+         SetCommentLine(cl++, " Prix DANS une zone d'offre fraiche", ColorSupply);
+      else if(PriceInZone(false, price))
+         SetCommentLine(cl++, " Prix DANS une zone de demande", ColorDemand);
+     }
+
+   if(frozen)
+     {
+      SetCommentLine(cl++, " ", clrSilver);
+      SetCommentLine(cl++, StringFormat(" Niveaux figes au signal de %s",
+                     TimeToString(gSigTime + BeninOffsetHours()*3600, TIME_MINUTES)), clrAqua);
+     }
+
+   FinishComment(cl);
   }
