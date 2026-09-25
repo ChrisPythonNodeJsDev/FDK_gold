@@ -177,6 +177,7 @@ double   gSigTP1   = 0.0, gSigTP2 = 0.0, gSigSL = 0.0;
 //--- Signal journal state
 datetime gLastLoggedBar = 0;   // bar already written, guards against duplicates
 int      gPrevSignalDir = 0;   // previous ENTREE AUTORISEE direction (0 = none)
+string   gPrevStatut    = "";  // AUTORISE / REJETE precedent
 
 //--- Last state the heavy chart layer was drawn for
 datetime gLastBar          = 0;
@@ -1602,7 +1603,12 @@ void UpdatePanel()
    // Journal: one line per transition INTO the allowed state, at most one per
    // bar. gLastLoggedBar also survives a reload, so re-attaching the indicator
    // while a signal still stands does not duplicate it.
-   if((entryAllowed || motif != "") && gPrevSignalDir != dir && gCtxValid)
+   // Un rejet qui dure plusieurs bougies ne doit etre journalise qu'une fois.
+   // Sans le statut dans la comparaison, gPrevSignalDir retombait a 0 a chaque
+   // passage et le meme refus se serait reecrit a chaque bougie, noyant le
+   // journal sous des doublons.
+   string statut = entryAllowed ? "AUTORISE" : (motif != "" ? "REJETE" : "");
+   if(statut != "" && (gPrevSignalDir != dir || gPrevStatut != statut) && gCtxValid)
      {
       datetime barTime = iTime(_Symbol, PERIOD_CURRENT, 0);
       if(barTime > gLastLoggedBar)
@@ -1621,12 +1627,13 @@ void UpdatePanel()
 
          if(LogSignals)
             LogSignal(barTime, dir, price, atr, gSigTP1, gSigTP2, gSigSL, rr,
-                      motif == "" ? "AUTORISE" : "REJETE", motif,
+                      statut, motif,
                       activeSession, biasM15, biasH4, rsi,
                       asiaPips, asiaRatio, swUp, swDn);
         }
      }
-   gPrevSignalDir = entryAllowed ? dir : 0;
+   gPrevSignalDir = (statut != "") ? dir : 0;
+   gPrevStatut    = statut;
 
    // Ce qui est affiche : les niveaux figes si un signal en a produit,
    // sinon la projection vivante.
@@ -1780,8 +1787,13 @@ void UpdatePanel()
       color rc = (rr >= 1.5) ? clrLightGreen : (rr >= 1.0 ? clrOrange : clrTomato);
       SetCommentLine(cl++, StringFormat("%s Gain/risque TP1 : %.2f pour 1",
                      rr >= 1.0 ? " OK " : " NON", rr), rc);
-      SetCommentLine(cl++, StringFormat("     equilibre a %.0f%% de reussite",
-                     100.0 / (1.0 + rr)), rc);
+      // Sous 0.05 la cible est deja atteinte : annoncer "equilibre a 100%"
+      // laisserait croire a un setup difficile au lieu d'un setup vide.
+      if(rr < 0.05)
+         SetCommentLine(cl++, "     TP1 deja atteint : aucune marge", clrTomato);
+      else
+         SetCommentLine(cl++, StringFormat("     equilibre a %.0f%% de reussite",
+                        100.0 / (1.0 + rr)), rc);
      }
    else
       SetCommentLine(cl++, " --  Niveaux indisponibles", clrGray);

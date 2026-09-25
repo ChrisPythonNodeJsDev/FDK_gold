@@ -1,0 +1,11 @@
+378 journees analysees
+
+quintile d amplitude       amplitude med.   jours avec signal
+  plus calmes                     192 pips               16 %
+  calmes                          519 pips               39 %
+  moyennes                        731 pips               36 %
+  agitees                        1002 pips               30 %
+  plus agitees                   1584 pips               39 %
+
+Journees a 600 pips ou plus : 236
+  dont avec au moins un signal : 84 (36 %)
