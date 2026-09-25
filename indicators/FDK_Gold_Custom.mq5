@@ -207,6 +207,7 @@ int OnInit()
       gLastLoggedBar = InitLog();
 
    CreatePanel();
+   CreateCommentBg();
    EventSetTimer(5);
    return(INIT_SUCCEEDED);
   }
@@ -1372,26 +1373,40 @@ void SetCommentLine(int idx, string text, color clr)
   }
 
 //+------------------------------------------------------------------+
+// Le fond est créé une fois pour toutes par CreateCommentBg(), appelée
+// depuis OnInit. Le créer ici, après les étiquettes, le ferait dessiner
+// PAR-DESSUS elles : l'ordre de création fait l'ordre de rendu.
 void FinishComment(int n)
   {
    for(int i = n; i < cmtLineCount; i++)
       ObjectDelete(0, CMT_PREFIX + IntegerToString(i));
    cmtLineCount = n;
 
-   if(ObjectFind(0, CMT_BG) < 0)
+   if(n == 0)
      {
-      ObjectCreate(0, CMT_BG, OBJ_RECTANGLE_LABEL, 0, 0, 0);
-      ObjectSetInteger(0, CMT_BG, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
-      ObjectSetInteger(0, CMT_BG, OBJPROP_XDISTANCE, CommentX + CommentWidth);
-      ObjectSetInteger(0, CMT_BG, OBJPROP_YDISTANCE, CommentY);
-      ObjectSetInteger(0, CMT_BG, OBJPROP_XSIZE, CommentWidth);
-      ObjectSetInteger(0, CMT_BG, OBJPROP_BGCOLOR, CommentBgColor);
-      ObjectSetInteger(0, CMT_BG, OBJPROP_BORDER_TYPE, BORDER_FLAT);
-      ObjectSetInteger(0, CMT_BG, OBJPROP_COLOR, clrGray);
-      ObjectSetInteger(0, CMT_BG, OBJPROP_BACK, false);
-      ObjectSetInteger(0, CMT_BG, OBJPROP_SELECTABLE, false);
+      ObjectDelete(0, CMT_BG);
+      return;
      }
-   ObjectSetInteger(0, CMT_BG, OBJPROP_YSIZE, 16 + n * 16);
+   if(ObjectFind(0, CMT_BG) >= 0)
+      ObjectSetInteger(0, CMT_BG, OBJPROP_YSIZE, 16 + n * 16);
+  }
+
+//+------------------------------------------------------------------+
+void CreateCommentBg()
+  {
+   if(!ShowComment || ObjectFind(0, CMT_BG) >= 0)
+      return;
+   ObjectCreate(0, CMT_BG, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, CMT_BG, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, CMT_BG, OBJPROP_XDISTANCE, CommentX + CommentWidth);
+   ObjectSetInteger(0, CMT_BG, OBJPROP_YDISTANCE, CommentY);
+   ObjectSetInteger(0, CMT_BG, OBJPROP_XSIZE, CommentWidth);
+   ObjectSetInteger(0, CMT_BG, OBJPROP_YSIZE, 16);
+   ObjectSetInteger(0, CMT_BG, OBJPROP_BGCOLOR, CommentBgColor);
+   ObjectSetInteger(0, CMT_BG, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+   ObjectSetInteger(0, CMT_BG, OBJPROP_COLOR, clrGray);
+   ObjectSetInteger(0, CMT_BG, OBJPROP_BACK, false);
+   ObjectSetInteger(0, CMT_BG, OBJPROP_SELECTABLE, false);
   }
 
 //+------------------------------------------------------------------+
