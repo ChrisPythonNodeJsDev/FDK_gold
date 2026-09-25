@@ -121,6 +121,20 @@ datetime lastDrawnDay = 0;
 int      panelLineCount = 0;   // lines drawn on the previous panel render
 int      cmtLineCount   = 0;   // idem pour le panneau de commentaire
 
+//--- Dernier contenu écrit dans chaque ligne. Réécrire une étiquette
+//--- inchangée coûte un appel objet ET force un redessin : sur un symbole
+//--- qui tique plusieurs fois par seconde, c'est ce qui empêchait la
+//--- bougie en cours de s'afficher normalement.
+#define MAXLINES 48
+string gPanelTxt[MAXLINES]; color gPanelClr[MAXLINES];
+string gCmtTxt[MAXLINES];   color gCmtClr[MAXLINES];
+bool   gDirty = false;      // un objet a-t-il réellement changé ?
+
+//--- Décalage horaire mis en cache : TimeGMT() était appelé plusieurs fois
+//--- par tick via BeninTime().
+int      gOffCached = 0;
+datetime gOffStamp  = 0;
+
 //--- Contexte recalcule UNE FOIS PAR BOUGIE. MT5 interrompt un indicateur
 //--- trop lent ("indicator is too slow") et le graphique se fige : tout ce
 //--- qui lit des barres doit rester hors du chemin appele a chaque tick.
@@ -361,11 +375,19 @@ void UpdateAll()
       BuildConfirmPoints();
       BuildZones();
       DrawZones();
+      gDirty = true;
      }
 
    DrawRangeLines();   // cheap, moves two lines in place
    UpdatePanel();
-   ChartRedraw(0);
+
+   // Un ChartRedraw par tick repeint tout le graphique et empeche la bougie
+   // en cours de s'animer. On ne redessine que si un objet a change.
+   if(gDirty)
+     {
+      ChartRedraw(0);
+      gDirty = false;
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -405,12 +427,18 @@ int BeninOffsetHours()
    if(!AutoDetectTimezone)
       return(ServerToBeninOffsetHours);
 
+   datetime now = TimeCurrent();
+   if(gOffStamp > 0 && now - gOffStamp < 60)
+      return(gOffCached);
+
    datetime gmt = TimeGMT();
    if(gmt <= 0)                       // GMT unavailable: fall back to manual
       return(ServerToBeninOffsetHours);
 
-   double diff = ((double)(gmt + 3600) - (double)TimeCurrent()) / 3600.0;
-   return((int)MathRound(diff));
+   double diff = ((double)(gmt + 3600) - (double)now) / 3600.0;
+   gOffCached = (int)MathRound(diff);
+   gOffStamp  = now;
+   return(gOffCached);
   }
 
 //+------------------------------------------------------------------+
@@ -1346,7 +1374,11 @@ void CreatePanel()
 void FinishPanel(int lineCount)
   {
    for(int i = lineCount; i < panelLineCount; i++)
+     {
       ObjectDelete(0, PANEL_PREFIX + IntegerToString(i));
+      if(i < MAXLINES) gPanelTxt[i] = "\x01";   // force la reecriture
+      gDirty = true;
+     }
    panelLineCount = lineCount;
    ObjectSetInteger(0, PANEL_BG, OBJPROP_YSIZE, 16 + lineCount * 16);
   }
@@ -1367,6 +1399,12 @@ void SetCommentLine(int idx, string text, color clr)
       ObjectSetString (0, name, OBJPROP_FONT, "Consolas");
       ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
      }
+   if(idx >= 0 && idx < MAXLINES && gCmtTxt[idx] == text && gCmtClr[idx] == clr)
+      return;
+   if(idx >= 0 && idx < MAXLINES)
+     { gCmtTxt[idx] = text; gCmtClr[idx] = clr; }
+   gDirty = true;
+
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, CommentY + 8 + idx * 16);
    ObjectSetString (0, name, OBJPROP_TEXT, text);
    ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
@@ -1379,7 +1417,11 @@ void SetCommentLine(int idx, string text, color clr)
 void FinishComment(int n)
   {
    for(int i = n; i < cmtLineCount; i++)
+     {
       ObjectDelete(0, CMT_PREFIX + IntegerToString(i));
+      if(i < MAXLINES) gCmtTxt[i] = "\x01";
+      gDirty = true;
+     }
    cmtLineCount = n;
 
    if(n == 0)
@@ -1422,6 +1464,12 @@ void SetPanelLine(int idx, string text, color clr)
       ObjectSetString(0, name, OBJPROP_FONT, "Consolas");
       ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
      }
+   if(idx >= 0 && idx < MAXLINES && gPanelTxt[idx] == text && gPanelClr[idx] == clr)
+      return;                       // rien n'a change : ne rien ecrire
+   if(idx >= 0 && idx < MAXLINES)
+     { gPanelTxt[idx] = text; gPanelClr[idx] = clr; }
+   gDirty = true;
+
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, PanelY + 8 + idx * 16);
    ObjectSetString(0, name, OBJPROP_TEXT, text);
    ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
