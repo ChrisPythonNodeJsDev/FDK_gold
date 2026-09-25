@@ -870,8 +870,8 @@ void DrawZones()
       string name = StringFormat("%szone_%s_%d_%d", PFX,
                                  gZones[i].isSupply ? "S" : "D",
                                  (int)gZones[i].tStart, (int)gZones[i].tf);
-      color  base = gZones[i].isSupply ? ColorSupply : ColorDemand;
-      uchar  a    = (uchar)(gZones[i].mitigated ? alpha / 3 : alpha);
+      color base = gZones[i].isSupply ? ColorSupply : ColorDemand;
+      bool  mit  = gZones[i].mitigated;
 
       if(ObjectFind(0, name) < 0)
          ObjectCreate(0, name, OBJ_RECTANGLE, 0, gZones[i].tStart, gZones[i].hi, rightEdge, gZones[i].lo);
@@ -880,8 +880,14 @@ void DrawZones()
          ObjectMove(0, name, 0, gZones[i].tStart, gZones[i].hi);
          ObjectMove(0, name, 1, rightEdge, gZones[i].lo);
         }
-      ObjectSetInteger(0, name, OBJPROP_COLOR, ColorToARGB(base, a));
-      ObjectSetInteger(0, name, OBJPROP_FILL, true);
+      // Une zone consommée devient un simple contour pointillé : empilées,
+      // les zones pleines rendaient le graphique illisible. Seules les zones
+      // encore fraîches gardent leur remplissage, donc leur poids visuel.
+      ObjectSetInteger(0, name, OBJPROP_FILL, !mit);
+      ObjectSetInteger(0, name, OBJPROP_COLOR,
+                       mit ? base : ColorToARGB(base, (uchar)alpha));
+      ObjectSetInteger(0, name, OBJPROP_STYLE, mit ? STYLE_DOT : STYLE_SOLID);
+      ObjectSetInteger(0, name, OBJPROP_WIDTH, 1);
       ObjectSetInteger(0, name, OBJPROP_BACK, true);
       ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
       ObjectSetString (0, name, OBJPROP_TOOLTIP,
