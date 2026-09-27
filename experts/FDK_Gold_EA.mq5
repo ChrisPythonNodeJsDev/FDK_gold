@@ -50,7 +50,15 @@ input group "=== Exécution ==="
 input double Lots        = 0.10;
 input long   MagicNumber = 20260927;
 
+//--- Purement visuel. L'EA décide via FDK_Common.mqh ; charger l'indicateur
+//--- ne change aucune décision, ça permet seulement de le VOIR travailler en
+//--- mode visuel. Il tourne avec SES propres réglages par défaut, qui peuvent
+//--- différer des entrées de l'EA si tu les as modifiées.
+input group "=== Affichage (mode visuel) ==="
+input bool   ShowIndicator = false;    // Ralentit nettement le test
+
 CTrade   gTrade;
+int      gIndHandle = INVALID_HANDLE;
 datetime gLastBar    = 0;
 int      gPrevDir    = 0;
 
@@ -83,7 +91,24 @@ int OnInit()
   {
    gTrade.SetExpertMagicNumber(MagicNumber);
    gTrade.SetTypeFillingBySymbol(_Symbol);
+
+   if(ShowIndicator)
+     {
+      gIndHandle = iCustom(_Symbol, PERIOD_CURRENT, "FDK_Gold_Custom");
+      if(gIndHandle == INVALID_HANDLE)
+         Print("FDK_EA: indicateur non chargé (err ", GetLastError(),
+               ") — le test continue, seul l'affichage manque.");
+      else
+         ChartIndicatorAdd(0, 0, gIndHandle);
+     }
    return(INIT_SUCCEEDED);
+  }
+
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+   if(gIndHandle != INVALID_HANDLE)
+      IndicatorRelease(gIndHandle);
   }
 
 //+------------------------------------------------------------------+
