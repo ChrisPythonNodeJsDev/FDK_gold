@@ -58,7 +58,8 @@ input group "=== Affichage (mode visuel) ==="
 input bool   ShowIndicator = false;    // Ralentit nettement le test
 
 CTrade   gTrade;
-int      gIndHandle = INVALID_HANDLE;
+int      gIndHandle   = INVALID_HANDLE;
+bool     gIndAttached = false;
 datetime gLastBar    = 0;
 int      gPrevDir    = 0;
 
@@ -92,14 +93,15 @@ int OnInit()
    gTrade.SetExpertMagicNumber(MagicNumber);
    gTrade.SetTypeFillingBySymbol(_Symbol);
 
+   // L'attachement au graphique est reporte au premier tick : en mode visuel
+   // le graphique du Simulateur n'existe pas encore pendant OnInit, et
+   // ChartIndicatorAdd echoue alors sans rien signaler.
    if(ShowIndicator)
      {
       gIndHandle = iCustom(_Symbol, PERIOD_CURRENT, "FDK_Gold_Custom");
       if(gIndHandle == INVALID_HANDLE)
          Print("FDK_EA: indicateur non chargé (err ", GetLastError(),
                ") — le test continue, seul l'affichage manque.");
-      else
-         ChartIndicatorAdd(0, 0, gIndHandle);
      }
    return(INIT_SUCCEEDED);
   }
@@ -116,6 +118,13 @@ void OnTick()
   {
    // La règle se décide à la bougie, pas au tick : évaluer plus souvent
    // ferait diverger l'EA de l'indicateur et du backtest.
+   if(gIndHandle != INVALID_HANDLE && !gIndAttached)
+     {
+      gIndAttached = true;
+      if(!ChartIndicatorAdd(0, 0, gIndHandle))
+         Print("FDK_EA: ChartIndicatorAdd a échoué (err ", GetLastError(), ")");
+     }
+
    datetime cur = iTime(_Symbol, PERIOD_CURRENT, 0);
    if(cur == gLastBar)
       return;
@@ -152,6 +161,21 @@ void OnTick()
 
    if(!isNew || HasPosition() || sl <= 0.0 || tp1 <= 0.0)
       return;
+
+   // Le broker refuse les stops trop proches du prix. Sans ce controle,
+   // l'ordre echoue en "Invalid stops" et le signal disparait du rapport :
+   // le backtest surestime alors les setups a stop large.
+   long   lvl     = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   double minDist = lvl * _Point;
+   if(minDist > 0.0
+      && (MathAbs(price - sl) < minDist || MathAbs(tp1 - price) < minDist))
+     {
+      PrintFormat("FDK_EA: signal %s ignoré — stops sous le minimum broker "
+                  "(%.1f pts requis, SL %.1f / TP %.1f)",
+                  dir > 0 ? "LONG" : "SHORT", minDist / _Point,
+                  MathAbs(price - sl) / _Point, MathAbs(tp1 - price) / _Point);
+      return;
+     }
 
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    if(dir > 0)
