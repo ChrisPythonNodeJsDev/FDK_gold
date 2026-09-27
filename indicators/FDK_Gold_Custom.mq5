@@ -44,6 +44,9 @@ input int    LevelsDepth    = 3;     // Profondeur de détection des swings
 input double SL_BufferPips  = 0;     // Marge au-delà du swing pour le SL (pips)
 input FDK_SLMode SL_Mode    = FDK_SL_FIXE;  // Structure ou écart fixe
 input double SL_FixedPips   = 200;   // Écart du stop en mode FIXE (pips)
+input FDK_TPMode TP_Mode    = FDK_TP_FIXE;  // Cibles structurelles ou fixes
+input double TP1_FixedPips  = 300;   // Cible 1 en mode FIXE (pips)
+input double TP2_FixedPips  = 500;   // Cible 2 en mode FIXE (pips)
 
 input group "=== Affichage ==="
 input color  ColorAsia        = clrDodgerBlue;
@@ -1533,6 +1536,10 @@ void RefreshContext()
    // Le mode FIXE remplace le stop structurel par un écart constant : la
    // perte maximale devient connue d'avance et identique à chaque trade.
    gCtxSL = FDK_StopLoss(SL_Mode, dir, price, gCtxSL, SL_FixedPips, PipSize());
+   // Cibles calculees apres le stop : en mode fixe elles partent du prix,
+   // donc le rapport gain/risque devient constant d'un trade a l'autre.
+   FDK_Targets(TP_Mode, dir, price, gCtxTP1, gCtxTP2,
+               TP1_FixedPips, TP2_FixedPips, PipSize(), gCtxTP1, gCtxTP2);
   }
 
 //+------------------------------------------------------------------+
@@ -1729,13 +1736,18 @@ void UpdatePanel()
                   ? StringFormat("%.0f pips", SL_FixedPips)
                   : ((sgn < 0) ? "dernier haut" : "dernier bas");
    string tpLab = (sgn < 0) ? "plus bas"      : "plus haut";
+   bool   tpFixe = (TP_Mode == FDK_TP_FIXE);
 
    SetPanelLine(line++, sl  > 0.0 ? StringFormat("SL  %s  (%s)",  DoubleToString(sl,  digits), slLab)
                                   : "SL  : structure absente", sl  > 0.0 ? clrTomato : clrGray);
-   SetPanelLine(line++, tp1 > 0.0 ? StringFormat("TP1 %s  (%s préc.)", DoubleToString(tp1, digits), tpLab)
-                                  : "TP1 : structure absente", tp1 > 0.0 ? clrSilver : clrGray);
-   SetPanelLine(line++, tp2 > 0.0 ? StringFormat("TP2 %s  (%s -2)",    DoubleToString(tp2, digits), tpLab)
-                                  : "TP2 : aucun second swing", tp2 > 0.0 ? clrSilver : clrGray);
+   SetPanelLine(line++, tp1 > 0.0
+                ? StringFormat("TP1 %s  (%s)", DoubleToString(tp1, digits),
+                    tpFixe ? StringFormat("%.0f pips", TP1_FixedPips) : tpLab + " préc.")
+                : "TP1 : structure absente", tp1 > 0.0 ? clrSilver : clrGray);
+   SetPanelLine(line++, tp2 > 0.0
+                ? StringFormat("TP2 %s  (%s)", DoubleToString(tp2, digits),
+                    tpFixe ? StringFormat("%.0f pips", TP2_FixedPips) : tpLab + " -2")
+                : "TP2 : aucun second swing", tp2 > 0.0 ? clrSilver : clrGray);
    if(rr > 0.0)
       SetPanelLine(line++, StringFormat("R:R %.2f   (mini %.2f)", rr, MinRR),
                    (MinRR <= 0.0 || rr >= MinRR) ? clrLightGreen : clrTomato);

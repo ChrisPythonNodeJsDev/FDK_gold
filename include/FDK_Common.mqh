@@ -404,3 +404,32 @@ double FDK_StopLoss(const FDK_SLMode mode, const int dir, const double price,
      }
    return(structSL);
   }
+
+//+------------------------------------------------------------------+
+//| Cibles : structurelles ou à distance fixe.                        |
+//| Un stop fixe associé à des cibles structurelles produit des       |
+//| rapports ingérables — mesuré jusqu'à 0.09, soit 92 % de réussite  |
+//| nécessaires — parce que le risque ne bouge pas tandis que la      |
+//| cible dépend du swing le plus proche, parfois à deux points.      |
+//| En mode FIXE le rapport devient constant et connu d'avance.       |
+//+------------------------------------------------------------------+
+enum FDK_TPMode { FDK_TP_STRUCTURE, FDK_TP_FIXE };
+
+void FDK_Targets(const FDK_TPMode mode, const int dir, const double price,
+                 const double structTP1, const double structTP2,
+                 const double fixed1Pips, const double fixed2Pips,
+                 const double pipSize, double &tp1, double &tp2)
+  {
+   if(mode != FDK_TP_FIXE || pipSize <= 0.0)
+     {
+      tp1 = structTP1;
+      tp2 = structTP2;
+      return;
+     }
+   tp1 = (fixed1Pips > 0.0)
+         ? ((dir > 0) ? price + fixed1Pips * pipSize : price - fixed1Pips * pipSize)
+         : 0.0;
+   tp2 = (fixed2Pips > 0.0)
+         ? ((dir > 0) ? price + fixed2Pips * pipSize : price - fixed2Pips * pipSize)
+         : 0.0;
+  }

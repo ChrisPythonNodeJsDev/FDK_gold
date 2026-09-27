@@ -50,6 +50,9 @@ input int    LevelsDepth    = 3;
 input double SL_BufferPips  = 0;
 input FDK_SLMode SL_Mode    = FDK_SL_FIXE;
 input double SL_FixedPips   = 200;
+input FDK_TPMode TP_Mode    = FDK_TP_FIXE;
+input double TP1_FixedPips  = 300;
+input double TP2_FixedPips  = 500;
 
 input group "=== Filtre gain/risque ==="
 input double MinRR     = 1.0;          // 0 = filtre désactivé
@@ -195,6 +198,8 @@ void OnTick()
                        LevelsLookback, LevelsDepth, buffer, sl, tp1, tp2);
    sl = FDK_StopLoss(SL_Mode, dir, price, sl,
                      SL_FixedPips, FDK_PipSize(_Digits, _Point));
+   FDK_Targets(TP_Mode, dir, price, tp1, tp2, TP1_FixedPips, TP2_FixedPips,
+               FDK_PipSize(_Digits, _Point), tp1, tp2);
 
    double rr = FDK_RiskReward(price, sl, tp1);
    double atrBuf[1];
