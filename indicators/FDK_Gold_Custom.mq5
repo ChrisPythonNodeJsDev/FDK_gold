@@ -42,8 +42,8 @@ input group "=== Niveaux SL / TP (structure) ==="
 input int    LevelsLookback = 150;   // Barres analysées pour trouver les swings
 input int    LevelsDepth    = 3;     // Profondeur de détection des swings
 input double SL_BufferPips  = 0;     // Marge au-delà du swing pour le SL (pips)
-input FDK_SLMode SL_Mode    = FDK_SL_STRUCTURE;  // Structure ou écart fixe
-input double SL_FixedPips   = 20;    // Écart du stop en mode FIXE (pips)
+input FDK_SLMode SL_Mode    = FDK_SL_FIXE;  // Structure ou écart fixe
+input double SL_FixedPips   = 200;   // Écart du stop en mode FIXE (pips)
 
 input group "=== Affichage ==="
 input color  ColorAsia        = clrDodgerBlue;

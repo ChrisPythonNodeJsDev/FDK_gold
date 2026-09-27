@@ -48,8 +48,8 @@ input group "=== Niveaux SL / TP ==="
 input int    LevelsLookback = 150;
 input int    LevelsDepth    = 3;
 input double SL_BufferPips  = 0;
-input FDK_SLMode SL_Mode    = FDK_SL_STRUCTURE;
-input double SL_FixedPips   = 20;
+input FDK_SLMode SL_Mode    = FDK_SL_FIXE;
+input double SL_FixedPips   = 200;
 
 input group "=== Filtre gain/risque ==="
 input double MinRR     = 1.5;          // 0 = filtre désactivé
