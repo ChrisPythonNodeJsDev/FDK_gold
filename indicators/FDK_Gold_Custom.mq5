@@ -48,6 +48,7 @@ input color  ColorAsia        = clrDodgerBlue;
 input color  ColorLondon      = clrSeaGreen;
 input color  ColorNewYorkAM   = clrGoldenrod;
 input color  ColorNewYorkPM   = clrIndianRed;
+input color  ColorFenetre     = clrDarkSlateBlue;
 input int    BoxOpacity       = 40;      // 0-255, transparence des zones de session
 input int    PanelX           = 10;
 input int    PanelY           = 10;
@@ -533,12 +534,15 @@ struct SessionDef
 
 int GetSessions(SessionDef &sessions[])
   {
-   ArrayResize(sessions, 4);
+   ArrayResize(sessions, 5);
    sessions[0].name = "ASIE";      sessions[0].startSec = HHMMToSeconds(AsiaStart);      sessions[0].endSec = HHMMToSeconds(AsiaEnd);      sessions[0].clr = ColorAsia;
    sessions[1].name = "LONDRES";   sessions[1].startSec = HHMMToSeconds(LondonStart);    sessions[1].endSec = HHMMToSeconds(LondonEnd);    sessions[1].clr = ColorLondon;
    sessions[2].name = "NY AM";     sessions[2].startSec = HHMMToSeconds(NewYorkAMStart); sessions[2].endSec = HHMMToSeconds(NewYorkAMEnd); sessions[2].clr = ColorNewYorkAM;
    sessions[3].name = "NY PM";     sessions[3].startSec = HHMMToSeconds(NewYorkPMStart); sessions[3].endSec = HHMMToSeconds(NewYorkPMEnd); sessions[3].clr = ColorNewYorkPM;
-   return(4);
+   // La fenêtre 1100-1330 tombait entre Londres et New York : on y calculait
+   // les points numérotés alors qu'aucune entrée n'y était possible.
+   sessions[4].name = "FENETRE";   sessions[4].startSec = HHMMToSeconds(ConfirmWindowStart); sessions[4].endSec = HHMMToSeconds(ConfirmWindowEnd); sessions[4].clr = ColorFenetre;
+   return(5);
   }
 
 //+------------------------------------------------------------------+
@@ -1299,10 +1303,11 @@ bool InTradableWindow(int sod)
 void ComputeAmd(datetime dayStart, double asiaHi, double asiaLo)
   {
    FDK_Session wins[];
-   ArrayResize(wins, 3);
-   wins[0].name = "LONDRES"; wins[0].from = HHMMToSeconds(LondonStart);    wins[0].to = HHMMToSeconds(LondonEnd);
-   wins[1].name = "NY_AM";   wins[1].from = HHMMToSeconds(NewYorkAMStart); wins[1].to = HHMMToSeconds(NewYorkAMEnd);
-   wins[2].name = "NY_PM";   wins[2].from = HHMMToSeconds(NewYorkPMStart); wins[2].to = HHMMToSeconds(NewYorkPMEnd);
+   ArrayResize(wins, 4);
+   wins[0].name = "LONDRES"; wins[0].from = HHMMToSeconds(LondonStart);        wins[0].to = HHMMToSeconds(LondonEnd);
+   wins[1].name = "FENETRE"; wins[1].from = HHMMToSeconds(ConfirmWindowStart); wins[1].to = HHMMToSeconds(ConfirmWindowEnd);
+   wins[2].name = "NY_AM";   wins[2].from = HHMMToSeconds(NewYorkAMStart);     wins[2].to = HHMMToSeconds(NewYorkAMEnd);
+   wins[3].name = "NY_PM";   wins[3].from = HHMMToSeconds(NewYorkPMStart);     wins[3].to = HHMMToSeconds(NewYorkPMEnd);
 
    FDK_Amd a;
    FDK_ComputeAmd(_Symbol, PERIOD_CURRENT,
@@ -1785,7 +1790,10 @@ void UpdatePanel()
    else if(gAmdSide != 0)
       SetCommentLine(cl++, " ~   AMD : balayage fait, cassure attendue", clrOrange);
    else
-      SetCommentLine(cl++, " NON AMD : aucun balayage de l'asiatique", clrGray);
+      // "en fenêtre" est essentiel : le compteur de balayages ci-dessous
+      // couvre toute la journée, l'AMD ne retient que ceux survenus dans une
+      // fenêtre tradable. Sans cette précision les deux se contredisent.
+      SetCommentLine(cl++, " NON AMD : aucun balayage en fenetre", clrGray);
 
    // rr est calculé plus haut : c'est lui qui a servi à décider, le
    // commentaire doit montrer exactement la valeur qui a tranché.

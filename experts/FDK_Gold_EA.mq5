@@ -32,6 +32,8 @@ input int    NewYorkAMStart = 1330;
 input int    NewYorkAMEnd   = 1600;
 input int    NewYorkPMStart = 1600;
 input int    NewYorkPMEnd   = 1900;
+input int    FenetreStart   = 1100;   // Fenêtre entre Londres et New York
+input int    FenetreEnd     = 1330;
 input bool   TradeAsia      = false;   // L'Asie est la phase d'accumulation
 
 input group "=== Déclenchement ==="
@@ -72,16 +74,18 @@ int      gPrevDir    = 0;
 // L'Asie en est exclue : c'est la phase d'accumulation.
 void BuildWindows(FDK_Session &w[])
   {
-   ArrayResize(w, 3);
+   ArrayResize(w, 4);
    w[0].name = "LONDRES"; w[0].from = FDK_HHMMToSec(LondonStart);    w[0].to = FDK_HHMMToSec(LondonEnd);
-   w[1].name = "NY_AM";   w[1].from = FDK_HHMMToSec(NewYorkAMStart); w[1].to = FDK_HHMMToSec(NewYorkAMEnd);
-   w[2].name = "NY_PM";   w[2].from = FDK_HHMMToSec(NewYorkPMStart); w[2].to = FDK_HHMMToSec(NewYorkPMEnd);
+   w[1].name = "FENETRE"; w[1].from = FDK_HHMMToSec(FenetreStart);   w[1].to = FDK_HHMMToSec(FenetreEnd);
+   w[2].name = "NY_AM";   w[2].from = FDK_HHMMToSec(NewYorkAMStart); w[2].to = FDK_HHMMToSec(NewYorkAMEnd);
+   w[3].name = "NY_PM";   w[3].from = FDK_HHMMToSec(NewYorkPMStart); w[3].to = FDK_HHMMToSec(NewYorkPMEnd);
   }
 
 //+------------------------------------------------------------------+
 void BuildSessions(FDK_Session &s[])
   {
-   ArrayResize(s, 4);
+   ArrayResize(s, 5);
+   s[4].name = "FENETRE"; s[4].from = FDK_HHMMToSec(FenetreStart);   s[4].to = FDK_HHMMToSec(FenetreEnd);
    s[0].name = "ASIE";    s[0].from = FDK_HHMMToSec(AsiaStart);      s[0].to = FDK_HHMMToSec(AsiaEnd);
    s[1].name = "LONDRES"; s[1].from = FDK_HHMMToSec(LondonStart);    s[1].to = FDK_HHMMToSec(LondonEnd);
    s[2].name = "NY_AM";   s[2].from = FDK_HHMMToSec(NewYorkAMStart); s[2].to = FDK_HHMMToSec(NewYorkAMEnd);
