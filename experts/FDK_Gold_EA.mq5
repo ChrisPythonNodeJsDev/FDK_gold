@@ -50,7 +50,8 @@ input int    LevelsDepth    = 3;
 input double SL_BufferPips  = 0;
 
 input group "=== Filtre gain/risque ==="
-input double MinRR = 1.5;              // 0 = filtre désactivé
+input double MinRR     = 1.5;          // 0 = filtre désactivé
+input double MinSL_ATR = 0.5;          // Stop mini, en multiples d'ATR
 
 input group "=== Exécution ==="
 input double Lots        = 0.10;
@@ -192,8 +193,18 @@ void OnTick()
                        LevelsLookback, LevelsDepth, buffer, sl, tp1, tp2);
 
    double rr = FDK_RiskReward(price, sl, tp1);
-   if(allowed && MinRR > 0.0 && rr > 0.0 && rr < MinRR)
-      allowed = false;                      // rapport insuffisant
+   double atrBuf[1];
+   double atr = 0.0;
+   int hAtr = iATR(_Symbol, PERIOD_M15, 14);
+   if(hAtr != INVALID_HANDLE && CopyBuffer(hAtr, 0, 0, 1, atrBuf) >= 1)
+      atr = atrBuf[0];
+
+   string motif = "";
+   if(allowed && !FDK_LevelsAcceptable(price, sl, atr, MinSL_ATR, rr, MinRR, motif))
+     {
+      allowed = false;
+      PrintFormat("FDK_EA: signal écarté — %s", motif);
+     }
 
    bool isNew = allowed && (gPrevDir != dir);
    gPrevDir   = allowed ? dir : 0;

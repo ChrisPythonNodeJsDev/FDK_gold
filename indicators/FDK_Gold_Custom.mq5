@@ -116,7 +116,8 @@ input double AsiaExpandedRatio = 1.0;   // Seuil (x moyenne) au-delà duquel l'a
 //--- Mesure sur 15 mois : un seuil a 1.5 conserve 41 % des configurations,
 //--- 1.0 en conserve 53 %. Le filtre durcit sans steriliser.
 input group "=== Filtre gain/risque ==="
-input double MinRR = 1.5;   // R:R mini sur TP1 pour autoriser l'entrée (0 = désactivé)
+input double MinRR    = 1.5;   // R:R mini sur TP1 (0 = désactivé)
+input double MinSL_ATR = 0.5;  // Stop mini, en multiples d'ATR (0 = désactivé)
 
 input group "=== Rafraîchissement ==="
 input int    PanelRefreshMs = 500;   // Intervalle mini entre deux mises à jour (ms)
@@ -1586,11 +1587,9 @@ void UpdatePanel()
    // Un signal aligné mais au rapport insuffisant est REJETÉ, et le rejet
    // est journalisé : un refus silencieux ne se mesure pas.
    string motif = "";
-   if(entryAllowed && MinRR > 0.0 && rr > 0.0 && rr < MinRR)
-     {
+   if(entryAllowed
+      && !FDK_LevelsAcceptable(price, liveSL, atr, MinSL_ATR, rr, MinRR, motif))
       entryAllowed = false;
-      motif = StringFormat("RR_INSUFFISANT_%.2f", rr);
-     }
 
    // Journal: one line per transition INTO the allowed state, at most one per
    // bar. gLastLoggedBar also survives a reload, so re-attaching the indicator
@@ -1756,7 +1755,7 @@ void UpdatePanel()
                      dir > 0 ? BullishColor : BearishColor);
      }
    else if(motif != "")
-      SetCommentLine(cl++, ">> SIGNAL REJETE : rapport insuffisant", clrTomato);
+      SetCommentLine(cl++, ">> SIGNAL REJETE : " + motif, clrTomato);
    else
       SetCommentLine(cl++, ">> PAS D'ENTREE POUR L'INSTANT", clrGray);
    SetCommentLine(cl++, " ", clrSilver);

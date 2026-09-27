@@ -347,3 +347,34 @@ void FDK_Decide(const FDK_EntryMode mode, const bool allowNeutralH4,
 
    d.dir = d.amdSignal ? amd.dir : ((biasM15 != 0) ? biasM15 : biasH4);
   }
+
+//+------------------------------------------------------------------+
+//| Un rapport gain/risque élevé n'est pas toujours une bonne         |
+//| nouvelle : il vient souvent d'un stop trop serré, collé au swing, |
+//| que le marché balaie en quelques minutes. Mesuré en simulation,   |
+//| un stop à 0.25 x ATR produisait un R:R de 10 et sautait aussitôt. |
+//| Les deux conditions doivent donc être vérifiées ensemble.         |
+//+------------------------------------------------------------------+
+bool FDK_LevelsAcceptable(const double price, const double sl, const double atr,
+                          const double minSlAtr, const double rr,
+                          const double minRR, string &motif)
+  {
+   motif = "";
+   double risk = MathAbs(price - sl);
+   if(sl <= 0.0 || risk <= 0.0)
+     {
+      motif = "SL_ABSENT";
+      return(false);
+     }
+   if(minSlAtr > 0.0 && atr > 0.0 && risk < minSlAtr * atr)
+     {
+      motif = StringFormat("SL_TROP_SERRE_%.2fxATR", risk / atr);
+      return(false);
+     }
+   if(minRR > 0.0 && rr > 0.0 && rr < minRR)
+     {
+      motif = StringFormat("RR_INSUFFISANT_%.2f", rr);
+      return(false);
+     }
+   return(true);
+  }
