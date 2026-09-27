@@ -84,6 +84,17 @@ input int    ZoneOpacity       = 55;     // 0-255, opacité du remplissage des z
 //--- on ne la trade pas. La manipulation vient a Londres, la distribution
 //--- vers New York. L'indicateur autorisait des entrees en session asiatique,
 //--- ce que la methode interdit.
+//--- Deux façons de déclencher une entrée, cumulables.
+//--- BIAIS : alignement M15/H4 pendant une session (règle historique).
+//--- AMD   : balayage de l'asiatique pendant Londres ou New York, suivi
+//---         d'une cassure de structure confirmant la distribution.
+//--- Mesure sur 15 mois : AMD donne -0.002 R, soit zéro. Il est proposé
+//--- parce qu'il correspond à la méthode lue, pas parce qu'il rapporte.
+enum EEntryMode { ENTRY_BIAIS, ENTRY_AMD, ENTRY_LES_DEUX };
+input group "=== Déclenchement ==="
+input EEntryMode EntryMode      = ENTRY_LES_DEUX;
+input bool       AllowNeutralH4 = true;  // H4 neutre n'interdit plus l'entrée
+
 input group "=== Sessions tradables ==="
 input bool   TradeAsia = false;   // Autoriser les entrées pendant l'Asie
 
@@ -174,6 +185,13 @@ int      gCtxSwQuick   = 0, gCtxSwCumul = 0;
 double   gCtxRangeHi   = 0.0, gCtxRangeLo = 0.0;
 double   gCtxSL        = 0.0, gCtxTP1 = 0.0, gCtxTP2 = 0.0;
 bool     gCtxValid     = false;   // tampons indicateurs prets ?
+
+//--- Etat AMD du jour : cote balaye, extreme de l'excursion, niveau dont la
+//--- cassure confirme le retournement, et direction de la distribution.
+int      gAmdSide = 0;
+double   gAmdExt = 0.0, gAmdLevel = 0.0;
+bool     gAmdConfirmed = false;
+int      gAmdDir = 0;
 
 //--- Etat des points numerotes de la fenetre du jour
 int    gConfHighs = 0, gConfLows = 0;
@@ -1266,6 +1284,86 @@ void BuildConfirmPoints()
   }
 
 //+------------------------------------------------------------------+
+bool InTradableWindow(int sod)
+  {
+   if(sod >= HHMMToSeconds(LondonStart)    && sod < HHMMToSeconds(LondonEnd))    return(true);
+   if(sod >= HHMMToSeconds(NewYorkAMStart) && sod < HHMMToSeconds(NewYorkAMEnd)) return(true);
+   if(sod >= HHMMToSeconds(NewYorkPMStart) && sod < HHMMToSeconds(NewYorkPMEnd)) return(true);
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+// Séquence AMD du jour : l'Asie accumule, Londres ou New York balaye la
+// liquidité, puis la distribution se confirme par une cassure de structure.
+// Sans cette confirmation on parierait sur un retournement au lieu
+// d'attendre qu'il se manifeste — c'est ce qui distingue -0.002 de -0.216 R.
+void ComputeAmd(datetime dayStart, double asiaHi, double asiaLo)
+  {
+   gAmdSide = 0; gAmdExt = 0.0; gAmdLevel = 0.0;
+   gAmdConfirmed = false; gAmdDir = 0;
+   if(asiaHi <= asiaLo)
+      return;
+
+   int b1 = iBarShift(_Symbol, PERIOD_CURRENT, dayStart + HHMMToSeconds(AsiaEnd), false);
+   int b2 = iBarShift(_Symbol, PERIOD_CURRENT, TimeCurrent(), false);
+   if(b1 < 0 || b2 < 0)
+      return;
+   int start = MathMax(b1, b2), end = MathMin(b1, b2);
+   int count = start - end + 1;
+   if(count < 3)
+      return;
+
+   double h[], l[], c[];
+   datetime t[];
+   if(CopyHigh (_Symbol, PERIOD_CURRENT, end, count, h) < count) return;
+   if(CopyLow  (_Symbol, PERIOD_CURRENT, end, count, l) < count) return;
+   if(CopyClose(_Symbol, PERIOD_CURRENT, end, count, c) < count) return;
+   if(CopyTime (_Symbol, PERIOD_CURRENT, end, count, t) < count) return;
+
+   int off = BeninOffsetHours();
+   bool outUp = false, outDn = false;
+   int  sweptAt = -1;
+
+   for(int i = 0; i < count; i++)
+     {
+      if(!InTradableWindow(SecondsOfDay(t[i] + off * 3600)))
+         continue;
+      if(h[i] > asiaHi) outUp = true;
+      if(l[i] < asiaLo) outDn = true;
+      if(outUp && c[i] < asiaHi) { gAmdSide = +1; sweptAt = i; break; }
+      if(outDn && c[i] > asiaLo) { gAmdSide = -1; sweptAt = i; break; }
+     }
+   if(gAmdSide == 0)
+      return;
+
+   gAmdDir = -gAmdSide;                    // la distribution part à l'opposé
+
+   int extIdx = 0;
+   gAmdExt = (gAmdDir > 0) ? l[0] : h[0];
+   for(int i = 0; i <= sweptAt; i++)
+     {
+      if(gAmdDir > 0 && l[i] <= gAmdExt) { gAmdExt = l[i]; extIdx = i; }
+      if(gAmdDir < 0 && h[i] >= gAmdExt) { gAmdExt = h[i]; extIdx = i; }
+     }
+
+   // Niveau dont la cassure confirme : l'extrême opposé qui a produit
+   // le mouvement de manipulation.
+   gAmdLevel = (gAmdDir > 0) ? h[0] : l[0];
+   for(int i = 0; i <= extIdx; i++)
+     {
+      if(gAmdDir > 0) gAmdLevel = MathMax(gAmdLevel, h[i]);
+      else            gAmdLevel = MathMin(gAmdLevel, l[i]);
+     }
+
+   for(int i = extIdx + 1; i < count; i++)
+      if((gAmdDir > 0 && c[i] > gAmdLevel) || (gAmdDir < 0 && c[i] < gAmdLevel))
+        {
+         gAmdConfirmed = true;
+         break;
+        }
+  }
+
+//+------------------------------------------------------------------+
 string BiasText(int bias)
   {
    if(bias > 0) return("HAUSSIER");
@@ -1439,10 +1537,6 @@ void RefreshContext()
    gCtxBiasH4  = ComputeBias(PERIOD_H4);
 
    double price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   int    dir   = (gCtxBiasM15 != 0) ? gCtxBiasM15 : gCtxBiasH4;
-   gCtxSL = 0.0; gCtxTP1 = 0.0; gCtxTP2 = 0.0;
-   StructureLevels(dir, price, gCtxSL, gCtxTP1, gCtxTP2);
-
    datetime dayStart = BeninDayStart();
    gCtxRangeHi = 0.0; gCtxRangeLo = 0.0;
    GetRangeHighLow(dayStart, TimeCurrent(), gCtxRangeHi, gCtxRangeLo);
@@ -1463,11 +1557,21 @@ void RefreshContext()
          double avg   = AsiaAvgCached();
          gCtxAsiaRatio = (avg > 0.0 ? gCtxAsiaPips / avg : 0.0);
          if(gCtxAsiaDone)
+           {
             gCtxSwTot = CountSweeps(dayStart + HHMMToSeconds(AsiaEnd), TimeCurrent(),
                                     asiaHi, asiaLo, gCtxSwUp, gCtxSwDn,
                                     gCtxSwQuick, gCtxSwCumul);
+            ComputeAmd(dayStart, asiaHi, asiaLo);
+           }
         }
      }
+
+   // Les niveaux suivent le sens qui sera reellement trade : si l'AMD est
+   // confirme, c'est sa distribution qui commande, pas le biais.
+   int dir = gAmdConfirmed ? gAmdDir
+                           : ((gCtxBiasM15 != 0) ? gCtxBiasM15 : gCtxBiasH4);
+   gCtxSL = 0.0; gCtxTP1 = 0.0; gCtxTP2 = 0.0;
+   StructureLevels(dir, price, gCtxSL, gCtxTP1, gCtxTP2);
   }
 
 //+------------------------------------------------------------------+
@@ -1490,13 +1594,24 @@ void UpdatePanel()
    // ni l'autre ne lit de barres.
    string activeSession = ActiveSessionName();
    bool sessionActive = (activeSession != "");
-   bool aligned = (biasM15 != 0 && biasM15 == biasH4);
-   bool asiaBlocked  = (!TradeAsia && activeSession == "ASIE");
-   bool entryAllowed = aligned && sessionActive && !asiaBlocked;
+   // H4 neutre ne contredit pas le M15 : l'interdire coupait les signaux
+   // sans discriminer — la mesure le montrait, 146 signaux ramenes a 34.
+   bool h4Neutral = (biasH4 == 0);
+   bool aligned   = (biasM15 != 0
+                     && (biasM15 == biasH4 || (AllowNeutralH4 && h4Neutral)));
+
+   bool asiaBlocked = (!TradeAsia && activeSession == "ASIE");
+   bool biasSignal  = aligned && sessionActive && !asiaBlocked;
+   bool amdSignal   = gAmdConfirmed && sessionActive && !asiaBlocked;
+
+   bool entryAllowed = false;
+   if(EntryMode == ENTRY_BIAIS)          entryAllowed = biasSignal;
+   else if(EntryMode == ENTRY_AMD)       entryAllowed = amdSignal;
+   else                                  entryAllowed = (biasSignal || amdSignal);
 
    double price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
-   int dir = (biasM15 != 0) ? biasM15 : biasH4;
+   int dir = amdSignal ? gAmdDir : ((biasM15 != 0) ? biasM15 : biasH4);
    int sgn = (dir >= 0) ? 1 : -1;
 
    double liveSL = gCtxSL, liveTP1 = gCtxTP1, liveTP2 = gCtxTP2;
@@ -1675,8 +1790,13 @@ void UpdatePanel()
    int cl = 0;
 
    if(entryAllowed)
-      SetCommentLine(cl++, ">> ENTREE AUTORISEE : " + (dir > 0 ? "ACHAT" : "VENTE"),
+     {
+      string src = (amdSignal && biasSignal) ? "AMD + BIAIS"
+                 : (amdSignal ? "AMD" : "BIAIS");
+      SetCommentLine(cl++, StringFormat(">> ENTREE AUTORISEE %s : %s",
+                     src, dir > 0 ? "ACHAT" : "VENTE"),
                      dir > 0 ? BullishColor : BearishColor);
+     }
    else if(motif != "")
       SetCommentLine(cl++, ">> SIGNAL REJETE : rapport insuffisant", clrTomato);
    else
@@ -1694,12 +1814,25 @@ void UpdatePanel()
    if(!sessionActive)
       SetCommentLine(cl++, "     dans une fenetre tradable", clrTomato);
 
-   if(aligned)
-      SetCommentLine(cl++, " OK  Biais M15 et H4 alignes (" + BiasText(dir) + ")", clrLightGreen);
+   // Le H4 neutre n'interdit plus rien, mais il doit se voir : c'est une
+   // confirmation en moins, pas un detail.
+   if(aligned && !h4Neutral)
+      SetCommentLine(cl++, " OK  Biais M15 et H4 alignes (" + BiasText(biasM15) + ")", clrLightGreen);
+   else if(aligned && h4Neutral)
+      SetCommentLine(cl++, " ~   Biais M15 " + BiasText(biasM15) + ", H4 NEUTRE", clrOrange);
    else if(biasM15 == 0)
       SetCommentLine(cl++, " NON Biais M15 neutre : pas de direction", clrTomato);
    else
       SetCommentLine(cl++, " NON Biais M15 et H4 s'opposent", clrTomato);
+
+   if(gAmdConfirmed)
+      SetCommentLine(cl++, StringFormat(" OK  AMD confirme : distribution %s",
+                     gAmdDir > 0 ? "haussiere" : "baissiere"),
+                     gAmdDir > 0 ? BullishColor : BearishColor);
+   else if(gAmdSide != 0)
+      SetCommentLine(cl++, " ~   AMD : balayage fait, cassure attendue", clrOrange);
+   else
+      SetCommentLine(cl++, " NON AMD : aucun balayage de l'asiatique", clrGray);
 
    // rr est calculé plus haut : c'est lui qui a servi à décider, le
    // commentaire doit montrer exactement la valeur qui a tranché.
@@ -1723,6 +1856,24 @@ void UpdatePanel()
      }
    else
       SetCommentLine(cl++, " --  Niveaux indisponibles", clrGray);
+
+   // Score : plus il y a de conditions reunies, plus le contexte est net.
+   // Ce n'est PAS une probabilite de gain — rien dans nos mesures ne permet
+   // de l'affirmer — seulement un decompte de ce qui concorde.
+   int score = 0;
+   if(sessionActive && !asiaBlocked)          score++;
+   if(biasM15 != 0)                           score++;
+   if(biasM15 != 0 && biasM15 == biasH4)      score++;
+   if(gAmdConfirmed)                          score++;
+   if(gCtxAsiaValid && gCtxAsiaDone && gCtxAsiaRatio > 0.0
+      && gCtxAsiaRatio < AsiaExpandedRatio)   score++;
+   if(rr >= ((MinRR > 0.0) ? MinRR : 1.0))    score++;
+
+   string bar = "";
+   for(int b = 0; b < 6; b++)
+      bar += (b < score) ? "#" : ".";
+   SetCommentLine(cl++, StringFormat("Confirmations %s %d/6", bar, score),
+                  score >= 5 ? clrLightGreen : (score >= 3 ? clrOrange : clrGray));
 
    SetCommentLine(cl++, " ", clrSilver);
    SetCommentLine(cl++, "ETAT DU MARCHE", PanelTextColor);
