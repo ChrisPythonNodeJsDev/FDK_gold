@@ -215,3 +215,135 @@ double FDK_RiskReward(const double price, const double sl, const double tp1)
       return(0.0);
    return(MathAbs(tp1 - price) / risk);
   }
+
+//+------------------------------------------------------------------+
+//| SÉQUENCE AMD ET DÉCISION D'ENTRÉE                                 |
+//| Déplacé ici depuis l'indicateur : la logique qui DÉCIDE ne peut   |
+//| pas vivre dans un seul des deux programmes, sinon le backtest ne  |
+//| mesure pas ce que l'écran affiche.                                 |
+//+------------------------------------------------------------------+
+
+enum FDK_EntryMode { FDK_ENTRY_BIAIS, FDK_ENTRY_AMD, FDK_ENTRY_LES_DEUX };
+
+struct FDK_Amd
+  {
+   int    side;        // côté balayé : +1 haut, -1 bas, 0 aucun
+   double ext;         // extrême de l'excursion
+   double level;       // niveau dont la cassure confirme le retournement
+   bool   confirmed;
+   int    dir;         // sens de la distribution attendue
+  };
+
+struct FDK_Decision
+  {
+   bool allowed;
+   bool biasSignal;
+   bool amdSignal;
+   bool aligned;
+   bool h4Neutral;
+   int  dir;
+  };
+
+//+------------------------------------------------------------------+
+bool FDK_InWindow(const int secOfDay, const FDK_Session &windows[])
+  {
+   for(int i = 0; i < ArraySize(windows); i++)
+      if(secOfDay >= windows[i].from && secOfDay < windows[i].to)
+         return(true);
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| L'Asie accumule, Londres ou New York balaye la liquidité, puis la |
+//| distribution se confirme par une cassure de structure. Sans cette |
+//| confirmation on parie sur un retournement au lieu d'attendre qu'il|
+//| se manifeste : mesuré, l'écart est de -0.216 à -0.002 R.          |
+//+------------------------------------------------------------------+
+void FDK_ComputeAmd(const string sym, const ENUM_TIMEFRAMES tf,
+                    const datetime from, const datetime to,
+                    const double asiaHi, const double asiaLo,
+                    const int beninOffset, const FDK_Session &windows[],
+                    FDK_Amd &out)
+  {
+   out.side = 0; out.ext = 0.0; out.level = 0.0;
+   out.confirmed = false; out.dir = 0;
+   if(asiaHi <= asiaLo)
+      return;
+
+   int b1 = iBarShift(sym, tf, from, false);
+   int b2 = iBarShift(sym, tf, to,   false);
+   if(b1 < 0 || b2 < 0)
+      return;
+   int start = MathMax(b1, b2), end = MathMin(b1, b2);
+   int count = start - end + 1;
+   if(count < 3)
+      return;
+
+   double h[], l[], c[];
+   datetime t[];
+   if(CopyHigh (sym, tf, end, count, h) < count) return;
+   if(CopyLow  (sym, tf, end, count, l) < count) return;
+   if(CopyClose(sym, tf, end, count, c) < count) return;
+   if(CopyTime (sym, tf, end, count, t) < count) return;
+
+   bool outUp = false, outDn = false;
+   int  sweptAt = -1;
+   for(int i = 0; i < count; i++)
+     {
+      if(!FDK_InWindow(FDK_SecOfDay(t[i] + beninOffset * 3600), windows))
+         continue;
+      if(h[i] > asiaHi) outUp = true;
+      if(l[i] < asiaLo) outDn = true;
+      if(outUp && c[i] < asiaHi) { out.side = +1; sweptAt = i; break; }
+      if(outDn && c[i] > asiaLo) { out.side = -1; sweptAt = i; break; }
+     }
+   if(out.side == 0)
+      return;
+
+   out.dir = -out.side;                 // la distribution part à l'opposé
+
+   int extIdx = 0;
+   out.ext = (out.dir > 0) ? l[0] : h[0];
+   for(int i = 0; i <= sweptAt; i++)
+     {
+      if(out.dir > 0 && l[i] <= out.ext) { out.ext = l[i]; extIdx = i; }
+      if(out.dir < 0 && h[i] >= out.ext) { out.ext = h[i]; extIdx = i; }
+     }
+
+   out.level = (out.dir > 0) ? h[0] : l[0];
+   for(int i = 0; i <= extIdx; i++)
+     {
+      if(out.dir > 0) out.level = MathMax(out.level, h[i]);
+      else            out.level = MathMin(out.level, l[i]);
+     }
+
+   for(int i = extIdx + 1; i < count; i++)
+      if((out.dir > 0 && c[i] > out.level) || (out.dir < 0 && c[i] < out.level))
+        {
+         out.confirmed = true;
+         break;
+        }
+  }
+
+//+------------------------------------------------------------------+
+//| Un H4 neutre ne contredit pas le M15. L'interdire coupait les     |
+//| signaux sans discriminer : 146 ramenés à 34, sans gain d'espérance|
+//+------------------------------------------------------------------+
+void FDK_Decide(const FDK_EntryMode mode, const bool allowNeutralH4,
+                const int biasM15, const int biasH4,
+                const FDK_Amd &amd,
+                const bool sessionActive, const bool asiaBlocked,
+                FDK_Decision &d)
+  {
+   d.h4Neutral  = (biasH4 == 0);
+   d.aligned    = (biasM15 != 0
+                   && (biasM15 == biasH4 || (allowNeutralH4 && d.h4Neutral)));
+   d.biasSignal = d.aligned && sessionActive && !asiaBlocked;
+   d.amdSignal  = amd.confirmed && sessionActive && !asiaBlocked;
+
+   if(mode == FDK_ENTRY_BIAIS)       d.allowed = d.biasSignal;
+   else if(mode == FDK_ENTRY_AMD)    d.allowed = d.amdSignal;
+   else                              d.allowed = (d.biasSignal || d.amdSignal);
+
+   d.dir = d.amdSignal ? amd.dir : ((biasM15 != 0) ? biasM15 : biasH4);
+  }

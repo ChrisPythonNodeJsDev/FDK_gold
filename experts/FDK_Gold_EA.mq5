@@ -34,6 +34,10 @@ input int    NewYorkPMStart = 1600;
 input int    NewYorkPMEnd   = 1900;
 input bool   TradeAsia      = false;   // L'Asie est la phase d'accumulation
 
+input group "=== Déclenchement ==="
+input FDK_EntryMode EntryMode   = FDK_ENTRY_LES_DEUX;
+input bool          AllowNeutralH4 = true;
+
 input group "=== Structure / Biais ==="
 input int    StructureLookback = 20;
 input int    SwingDepth        = 3;
@@ -62,6 +66,17 @@ int      gIndHandle   = INVALID_HANDLE;
 bool     gIndAttached = false;
 datetime gLastBar    = 0;
 int      gPrevDir    = 0;
+
+//+------------------------------------------------------------------+
+// Fenêtres où la manipulation puis la distribution peuvent avoir lieu.
+// L'Asie en est exclue : c'est la phase d'accumulation.
+void BuildWindows(FDK_Session &w[])
+  {
+   ArrayResize(w, 3);
+   w[0].name = "LONDRES"; w[0].from = FDK_HHMMToSec(LondonStart);    w[0].to = FDK_HHMMToSec(LondonEnd);
+   w[1].name = "NY_AM";   w[1].from = FDK_HHMMToSec(NewYorkAMStart); w[1].to = FDK_HHMMToSec(NewYorkAMEnd);
+   w[2].name = "NY_PM";   w[2].from = FDK_HHMMToSec(NewYorkPMStart); w[2].to = FDK_HHMMToSec(NewYorkPMEnd);
+  }
 
 //+------------------------------------------------------------------+
 void BuildSessions(FDK_Session &s[])
@@ -140,11 +155,31 @@ void OnTick()
    int biasM15 = FDK_Bias(_Symbol, PERIOD_M15, StructureLookback, SwingDepth);
    int biasH4  = FDK_Bias(_Symbol, PERIOD_H4,  StructureLookback, SwingDepth);
 
-   bool aligned     = (biasM15 != 0 && biasM15 == biasH4);
-   bool asiaBlocked = (!TradeAsia && active == "ASIE");
-   bool allowed     = aligned && active != "" && !asiaBlocked;
+   // Séquence AMD du jour, évaluée exactement comme dans l'indicateur.
+   datetime beninMidnight = now - (now % 86400) - off * 3600;
+   double asiaHi = 0.0, asiaLo = 0.0;
+   FDK_Amd amd;
+   amd.side = 0; amd.ext = 0.0; amd.level = 0.0; amd.confirmed = false; amd.dir = 0;
 
-   int dir = biasM15;
+   if(FDK_RangeHiLo(_Symbol, PERIOD_CURRENT,
+                    beninMidnight + FDK_HHMMToSec(AsiaStart),
+                    beninMidnight + FDK_HHMMToSec(AsiaEnd), asiaHi, asiaLo))
+     {
+      FDK_Session wins[];
+      BuildWindows(wins);
+      FDK_ComputeAmd(_Symbol, PERIOD_CURRENT,
+                     beninMidnight + FDK_HHMMToSec(AsiaEnd), TimeCurrent(),
+                     asiaHi, asiaLo, off, wins, amd);
+     }
+
+   bool asiaBlocked = (!TradeAsia && active == "ASIE");
+
+   FDK_Decision dec;
+   FDK_Decide(EntryMode, AllowNeutralH4, biasM15, biasH4, amd,
+              active != "", asiaBlocked, dec);
+
+   bool allowed = dec.allowed;
+   int  dir     = dec.dir;
 
    double price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double sl = 0.0, tp1 = 0.0, tp2 = 0.0;
@@ -158,6 +193,12 @@ void OnTick()
 
    bool isNew = allowed && (gPrevDir != dir);
    gPrevDir   = allowed ? dir : 0;
+   if(isNew)
+      PrintFormat("FDK_EA: signal %s par %s (M15=%d H4=%d, AMD=%s, R:R %.2f)",
+                  dir > 0 ? "LONG" : "SHORT",
+                  dec.amdSignal && dec.biasSignal ? "AMD+BIAIS"
+                                                  : (dec.amdSignal ? "AMD" : "BIAIS"),
+                  biasM15, biasH4, amd.confirmed ? "oui" : "non", rr);
 
    if(!isNew || HasPosition() || sl <= 0.0 || tp1 <= 0.0)
       return;

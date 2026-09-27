@@ -90,9 +90,8 @@ input int    ZoneOpacity       = 55;     // 0-255, opacité du remplissage des z
 //---         d'une cassure de structure confirmant la distribution.
 //--- Mesure sur 15 mois : AMD donne -0.002 R, soit zéro. Il est proposé
 //--- parce qu'il correspond à la méthode lue, pas parce qu'il rapporte.
-enum EEntryMode { ENTRY_BIAIS, ENTRY_AMD, ENTRY_LES_DEUX };
 input group "=== Déclenchement ==="
-input EEntryMode EntryMode      = ENTRY_LES_DEUX;
+input FDK_EntryMode EntryMode   = FDK_ENTRY_LES_DEUX;
 input bool       AllowNeutralH4 = true;  // H4 neutre n'interdit plus l'entrée
 
 input group "=== Sessions tradables ==="
@@ -1299,68 +1298,19 @@ bool InTradableWindow(int sod)
 // d'attendre qu'il se manifeste — c'est ce qui distingue -0.002 de -0.216 R.
 void ComputeAmd(datetime dayStart, double asiaHi, double asiaLo)
   {
-   gAmdSide = 0; gAmdExt = 0.0; gAmdLevel = 0.0;
-   gAmdConfirmed = false; gAmdDir = 0;
-   if(asiaHi <= asiaLo)
-      return;
+   FDK_Session wins[];
+   ArrayResize(wins, 3);
+   wins[0].name = "LONDRES"; wins[0].from = HHMMToSeconds(LondonStart);    wins[0].to = HHMMToSeconds(LondonEnd);
+   wins[1].name = "NY_AM";   wins[1].from = HHMMToSeconds(NewYorkAMStart); wins[1].to = HHMMToSeconds(NewYorkAMEnd);
+   wins[2].name = "NY_PM";   wins[2].from = HHMMToSeconds(NewYorkPMStart); wins[2].to = HHMMToSeconds(NewYorkPMEnd);
 
-   int b1 = iBarShift(_Symbol, PERIOD_CURRENT, dayStart + HHMMToSeconds(AsiaEnd), false);
-   int b2 = iBarShift(_Symbol, PERIOD_CURRENT, TimeCurrent(), false);
-   if(b1 < 0 || b2 < 0)
-      return;
-   int start = MathMax(b1, b2), end = MathMin(b1, b2);
-   int count = start - end + 1;
-   if(count < 3)
-      return;
+   FDK_Amd a;
+   FDK_ComputeAmd(_Symbol, PERIOD_CURRENT,
+                  dayStart + HHMMToSeconds(AsiaEnd), TimeCurrent(),
+                  asiaHi, asiaLo, BeninOffsetHours(), wins, a);
 
-   double h[], l[], c[];
-   datetime t[];
-   if(CopyHigh (_Symbol, PERIOD_CURRENT, end, count, h) < count) return;
-   if(CopyLow  (_Symbol, PERIOD_CURRENT, end, count, l) < count) return;
-   if(CopyClose(_Symbol, PERIOD_CURRENT, end, count, c) < count) return;
-   if(CopyTime (_Symbol, PERIOD_CURRENT, end, count, t) < count) return;
-
-   int off = BeninOffsetHours();
-   bool outUp = false, outDn = false;
-   int  sweptAt = -1;
-
-   for(int i = 0; i < count; i++)
-     {
-      if(!InTradableWindow(SecondsOfDay(t[i] + off * 3600)))
-         continue;
-      if(h[i] > asiaHi) outUp = true;
-      if(l[i] < asiaLo) outDn = true;
-      if(outUp && c[i] < asiaHi) { gAmdSide = +1; sweptAt = i; break; }
-      if(outDn && c[i] > asiaLo) { gAmdSide = -1; sweptAt = i; break; }
-     }
-   if(gAmdSide == 0)
-      return;
-
-   gAmdDir = -gAmdSide;                    // la distribution part à l'opposé
-
-   int extIdx = 0;
-   gAmdExt = (gAmdDir > 0) ? l[0] : h[0];
-   for(int i = 0; i <= sweptAt; i++)
-     {
-      if(gAmdDir > 0 && l[i] <= gAmdExt) { gAmdExt = l[i]; extIdx = i; }
-      if(gAmdDir < 0 && h[i] >= gAmdExt) { gAmdExt = h[i]; extIdx = i; }
-     }
-
-   // Niveau dont la cassure confirme : l'extrême opposé qui a produit
-   // le mouvement de manipulation.
-   gAmdLevel = (gAmdDir > 0) ? h[0] : l[0];
-   for(int i = 0; i <= extIdx; i++)
-     {
-      if(gAmdDir > 0) gAmdLevel = MathMax(gAmdLevel, h[i]);
-      else            gAmdLevel = MathMin(gAmdLevel, l[i]);
-     }
-
-   for(int i = extIdx + 1; i < count; i++)
-      if((gAmdDir > 0 && c[i] > gAmdLevel) || (gAmdDir < 0 && c[i] < gAmdLevel))
-        {
-         gAmdConfirmed = true;
-         break;
-        }
+   gAmdSide = a.side; gAmdExt = a.ext; gAmdLevel = a.level;
+   gAmdConfirmed = a.confirmed; gAmdDir = a.dir;
   }
 
 //+------------------------------------------------------------------+
@@ -1596,22 +1546,25 @@ void UpdatePanel()
    bool sessionActive = (activeSession != "");
    // H4 neutre ne contredit pas le M15 : l'interdire coupait les signaux
    // sans discriminer — la mesure le montrait, 146 signaux ramenes a 34.
-   bool h4Neutral = (biasH4 == 0);
-   bool aligned   = (biasM15 != 0
-                     && (biasM15 == biasH4 || (AllowNeutralH4 && h4Neutral)));
-
    bool asiaBlocked = (!TradeAsia && activeSession == "ASIE");
-   bool biasSignal  = aligned && sessionActive && !asiaBlocked;
-   bool amdSignal   = gAmdConfirmed && sessionActive && !asiaBlocked;
 
-   bool entryAllowed = false;
-   if(EntryMode == ENTRY_BIAIS)          entryAllowed = biasSignal;
-   else if(EntryMode == ENTRY_AMD)       entryAllowed = amdSignal;
-   else                                  entryAllowed = (biasSignal || amdSignal);
+   FDK_Amd amd;
+   amd.side = gAmdSide; amd.ext = gAmdExt; amd.level = gAmdLevel;
+   amd.confirmed = gAmdConfirmed; amd.dir = gAmdDir;
+
+   FDK_Decision dec;
+   FDK_Decide(EntryMode, AllowNeutralH4, biasM15, biasH4, amd,
+              sessionActive, asiaBlocked, dec);
+
+   bool h4Neutral    = dec.h4Neutral;
+   bool aligned      = dec.aligned;
+   bool biasSignal   = dec.biasSignal;
+   bool amdSignal    = dec.amdSignal;
+   bool entryAllowed = dec.allowed;
 
    double price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
-   int dir = amdSignal ? gAmdDir : ((biasM15 != 0) ? biasM15 : biasH4);
+   int dir = dec.dir;
    int sgn = (dir >= 0) ? 1 : -1;
 
    double liveSL = gCtxSL, liveTP1 = gCtxTP1, liveTP2 = gCtxTP2;
