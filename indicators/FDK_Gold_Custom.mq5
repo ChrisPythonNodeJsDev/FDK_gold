@@ -75,6 +75,18 @@ input color  ColorSupply       = clrCrimson;
 input color  ColorDemand       = clrDeepSkyBlue;
 input int    ZoneOpacity       = 55;     // 0-255, opacité du remplissage des zones
 
+//--- Dans le modele AMD, l'Asie est la phase d'ACCUMULATION : on l'observe,
+//--- on ne la trade pas. La manipulation vient a Londres, la distribution
+//--- vers New York. L'indicateur autorisait des entrees en session asiatique,
+//--- ce que la methode interdit.
+input group "=== Sessions tradables ==="
+input bool   TradeAsia = false;   // Autoriser les entrées pendant l'Asie
+
+//--- Un balayage eclair (sortie et retour immediats) et un balayage cumulatif
+//--- (le prix consolide HORS de la fourchette avant de se retourner) n'ont pas
+//--- la meme signification. Le compteur les distingue desormais.
+input int    SweepQuickMaxBars = 3;   // Au-delà, le balayage est dit cumulatif
+
 input group "=== Asiatique / Sweeps ==="
 input bool   ShowAsiaStats     = true;  // Taille de l'asiatique et compteur de sweeps
 input int    AsiaAvgDays       = 10;    // Jours servant de moyenne de référence
@@ -153,6 +165,7 @@ double   gCtxRSI       = 0.0, gCtxATR   = 0.0;
 bool     gCtxAsiaValid = false, gCtxAsiaDone = false;
 double   gCtxAsiaPips  = 0.0, gCtxAsiaRatio = 0.0;
 int      gCtxSwUp      = 0, gCtxSwDn = 0, gCtxSwTot = 0;
+int      gCtxSwQuick   = 0, gCtxSwCumul = 0;
 double   gCtxRangeHi   = 0.0, gCtxRangeLo = 0.0;
 double   gCtxSL        = 0.0, gCtxTP1 = 0.0, gCtxTP2 = 0.0;
 bool     gCtxValid     = false;   // tampons indicateurs prets ?
@@ -1113,10 +1126,12 @@ double AsiaAvgCached()
 // excursions completes, pas les barres : une sortie qui dure cinq bougies
 // avant de rentrer reste un seul sweep.
 int CountSweeps(datetime from, datetime to, double hiLevel, double loLevel,
-                int &upSweeps, int &dnSweeps)
+                int &upSweeps, int &dnSweeps, int &quick, int &cumul)
   {
    upSweeps = 0;
    dnSweeps = 0;
+   quick    = 0;
+   cumul    = 0;
 
    int b1 = iBarShift(_Symbol, PERIOD_CURRENT, from, false);
    int b2 = iBarShift(_Symbol, PERIOD_CURRENT, to,   false);
@@ -1137,13 +1152,24 @@ int CountSweeps(datetime from, datetime to, double hiLevel, double loLevel,
    if(CopyClose(_Symbol, PERIOD_CURRENT, end, count, c) < count) return(0);
 
    bool pendUp = false, pendDn = false;
+   int  startUp = 0, startDn = 0;
    for(int i = 0; i < count; i++)        // ordre chronologique
      {
-      if(h[i] > hiLevel)             pendUp = true;
-      if(pendUp && c[i] < hiLevel) { upSweeps++; pendUp = false; }
+      if(h[i] > hiLevel && !pendUp) { pendUp = true; startUp = i; }
+      if(pendUp && c[i] < hiLevel)
+        {
+         upSweeps++;
+         if(i - startUp <= SweepQuickMaxBars) quick++; else cumul++;
+         pendUp = false;
+        }
 
-      if(l[i] < loLevel)             pendDn = true;
-      if(pendDn && c[i] > loLevel) { dnSweeps++; pendDn = false; }
+      if(l[i] < loLevel && !pendDn) { pendDn = true; startDn = i; }
+      if(pendDn && c[i] > loLevel)
+        {
+         dnSweeps++;
+         if(i - startDn <= SweepQuickMaxBars) quick++; else cumul++;
+         pendDn = false;
+        }
      }
    return(upSweeps + dnSweeps);
   }
@@ -1540,6 +1566,7 @@ void RefreshContext()
    gCtxAsiaValid = false; gCtxAsiaDone = false;
    gCtxAsiaPips  = 0.0;   gCtxAsiaRatio = 0.0;
    gCtxSwUp = 0; gCtxSwDn = 0; gCtxSwTot = 0;
+   gCtxSwQuick = 0; gCtxSwCumul = 0;
 
    if(ShowAsiaStats && IntradayTF())
      {
@@ -1553,7 +1580,8 @@ void RefreshContext()
          gCtxAsiaRatio = (avg > 0.0 ? gCtxAsiaPips / avg : 0.0);
          if(gCtxAsiaDone)
             gCtxSwTot = CountSweeps(dayStart + HHMMToSeconds(AsiaEnd), TimeCurrent(),
-                                    asiaHi, asiaLo, gCtxSwUp, gCtxSwDn);
+                                    asiaHi, asiaLo, gCtxSwUp, gCtxSwDn,
+                                    gCtxSwQuick, gCtxSwCumul);
         }
      }
   }
@@ -1579,7 +1607,8 @@ void UpdatePanel()
    string activeSession = ActiveSessionName();
    bool sessionActive = (activeSession != "");
    bool aligned = (biasM15 != 0 && biasM15 == biasH4);
-   bool entryAllowed = aligned && sessionActive;
+   bool asiaBlocked  = (!TradeAsia && activeSession == "ASIE");
+   bool entryAllowed = aligned && sessionActive && !asiaBlocked;
 
    double price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
@@ -1772,7 +1801,9 @@ void UpdatePanel()
 
    SetCommentLine(cl++, "CONDITIONS", PanelTextColor);
 
-   if(sessionActive)
+   if(asiaBlocked)
+      SetCommentLine(cl++, " NON Asie = accumulation, pas d'entree", clrTomato);
+   else if(sessionActive)
       SetCommentLine(cl++, " OK  Session " + activeSession + " ouverte", clrLightGreen);
    else
       SetCommentLine(cl++, " NON Hors session : le marche n'est pas", clrTomato);
@@ -1831,6 +1862,12 @@ void UpdatePanel()
             SetCommentLine(cl++, "   marche indecis", clrOrange);
          else if(swTot > 0)
             SetCommentLine(cl++, "   prise sous/sur l'asiatique", clrYellow);
+
+         // Un balayage cumulatif — le prix consolide hors de la fourchette —
+         // n'a pas la meme portee qu'une sortie eclair.
+         if(swTot > 0)
+            SetCommentLine(cl++, StringFormat("   %d eclair / %d cumulatif",
+                           gCtxSwQuick, gCtxSwCumul), clrSilver);
         }
      }
 

@@ -1,0 +1,8 @@
+Cibles comparees sur la regle AMD + MSS
+
+-- IN-SAMPLE
+  structure                  n=113  R:R median  0.19   sous 1:1  90 %   esperance +0.060 R (t +1.21)
+  projection                 n=107  R:R median  1.11   sous 1:1  41 %   esperance +0.070 R (t +0.90)
+-- OUT-OF-SAMPLE
+  structure                  n=50   R:R median  0.23   sous 1:1  92 %   esperance -0.039 R (t -0.49)
+  projection                 n=49   R:R median  1.24   sous 1:1  35 %   esperance -0.062 R (t -0.51)
