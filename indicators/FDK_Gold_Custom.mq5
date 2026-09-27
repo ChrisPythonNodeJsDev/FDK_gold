@@ -4,6 +4,11 @@
 #property indicator_chart_window
 #property indicator_plots 0
 
+//--- Toute la logique servant à DÉCIDER vit dans cet include, partagé avec
+//--- l'Expert Advisor. Dupliquer ces calculs ferait diverger l'indicateur
+//--- de l'EA et du backtest, sans qu'on puisse dire lequel a raison.
+#include <FDK_Common.mqh>
+
 //--- Inputs: session times are in "Benin time" (GMT+1, no DST); the offset
 //--- converts broker/server time to Benin time: BeninTime = ServerTime + offset.
 //--- With AutoDetectTimezone the offset is derived from the broker's own clock,
@@ -473,12 +478,7 @@ int BeninOffsetHours()
    if(gOffStamp > 0 && now - gOffStamp < 60)
       return(gOffCached);
 
-   datetime gmt = TimeGMT();
-   if(gmt <= 0)                       // GMT unavailable: fall back to manual
-      return(ServerToBeninOffsetHours);
-
-   double diff = ((double)(gmt + 3600) - (double)now) / 3600.0;
-   gOffCached = (int)MathRound(diff);
+   gOffCached = FDK_BeninOffset(true, ServerToBeninOffsetHours);
    gOffStamp  = now;
    return(gOffCached);
   }
@@ -499,21 +499,11 @@ datetime BeninDayStart()
 
 //+------------------------------------------------------------------+
 // Convert HHMM int (e.g. 1330) to seconds-since-midnight
-int HHMMToSeconds(int hhmm)
-  {
-   int hh = hhmm / 100;
-   int mm = hhmm % 100;
-   return(hh * 3600 + mm * 60);
-  }
+int HHMMToSeconds(int hhmm) { return(FDK_HHMMToSec(hhmm)); }
 
 //+------------------------------------------------------------------+
 // Returns seconds-since-midnight for a given Benin datetime
-int SecondsOfDay(datetime t)
-  {
-   MqlDateTime dt;
-   TimeToStruct(t, dt);
-   return(dt.hour * 3600 + dt.min * 60 + dt.sec);
-  }
+int SecondsOfDay(datetime t) { return(FDK_SecOfDay(t)); }
 
 //+------------------------------------------------------------------+
 struct SessionDef
@@ -612,21 +602,7 @@ void DrawSessionBoxes()
 //+------------------------------------------------------------------+
 bool GetRangeHighLow(datetime from, datetime to, double &hi, double &lo)
   {
-   int barFrom = iBarShift(_Symbol, PERIOD_CURRENT, from, false);
-   int barTo   = iBarShift(_Symbol, PERIOD_CURRENT, to, false);
-   if(barFrom < 0 || barTo < 0)
-      return(false);
-   int startBar = MathMin(barFrom, barTo);
-   int count    = MathAbs(barFrom - barTo) + 1;
-   if(count < 1)
-      return(false);
-   int hiIdx = iHighest(_Symbol, PERIOD_CURRENT, MODE_HIGH, count, startBar);
-   int loIdx = iLowest(_Symbol, PERIOD_CURRENT, MODE_LOW, count, startBar);
-   if(hiIdx < 0 || loIdx < 0)
-      return(false);
-   hi = iHigh(_Symbol, PERIOD_CURRENT, hiIdx);
-   lo = iLow(_Symbol, PERIOD_CURRENT, loIdx);
-   return(true);
+   return(FDK_RangeHiLo(_Symbol, PERIOD_CURRENT, from, to, hi, lo));
   }
 
 //+------------------------------------------------------------------+
@@ -665,50 +641,7 @@ void DrawHLine(string name, double price, color clr, string text)
 // that bar, which is what the per-day chart labels need.
 int ComputeBias(ENUM_TIMEFRAMES tf, int startShift = 0)
   {
-   double highs[], lows[];
-   int bars = StructureLookback + SwingDepth * 2 + 2;
-   if(startShift < 0)
-      startShift = 0;
-   if(CopyHigh(_Symbol, tf, startShift, bars, highs) < bars)
-      return(0);
-   if(CopyLow(_Symbol, tf, startShift, bars, lows) < bars)
-      return(0);
-   ArraySetAsSeries(highs, true);
-   ArraySetAsSeries(lows, true);
-
-   int swingHighIdx[]; int swingLowIdx[];
-   int shCount = 0, slCount = 0;
-   ArrayResize(swingHighIdx, StructureLookback);
-   ArrayResize(swingLowIdx, StructureLookback);
-
-   for(int i = SwingDepth; i < StructureLookback + SwingDepth; i++)
-     {
-      bool isHigh = true, isLow = true;
-      for(int k = 1; k <= SwingDepth; k++)
-        {
-         if(highs[i] <= highs[i-k] || highs[i] <= highs[i+k]) isHigh = false;
-         if(lows[i]  >= lows[i-k]  || lows[i]  >= lows[i+k])  isLow  = false;
-        }
-      if(isHigh && shCount < StructureLookback) swingHighIdx[shCount++] = i;
-      if(isLow  && slCount < StructureLookback) swingLowIdx[slCount++]  = i;
-     }
-
-   if(shCount < 2 || slCount < 2)
-      return(0);
-
-   double h1 = highs[swingHighIdx[0]], h2 = highs[swingHighIdx[1]];
-   double l1 = lows[swingLowIdx[0]],   l2 = lows[swingLowIdx[1]];
-
-   bool higherHigh = h1 > h2;
-   bool higherLow  = l1 > l2;
-   bool lowerHigh  = h1 < h2;
-   bool lowerLow   = l1 < l2;
-
-   if(higherHigh && higherLow)
-      return(1);
-   if(lowerHigh && lowerLow)
-      return(-1);
-   return(0);
+   return(FDK_Bias(_Symbol, tf, StructureLookback, SwingDepth, startShift));
   }
 
 //+------------------------------------------------------------------+
@@ -971,12 +904,7 @@ bool IntradayTF()
 
 //+------------------------------------------------------------------+
 // One pip. Gold quotes on 2 digits, where a pip is 0.10 (not 0.01).
-double PipSize()
-  {
-   if(_Digits == 2 || _Digits == 3 || _Digits == 5)
-      return(_Point * 10);
-   return(_Point);
-  }
+double PipSize() { return(FDK_PipSize(_Digits, _Point)); }
 
 //+------------------------------------------------------------------+
 void MakeDayText(string name, datetime t, double price, string txt, color clr)
@@ -1219,27 +1147,7 @@ void DrawSignalLines(bool frozen, double tp1, double tp2, double sl)
 // Swings de la période courante, du plus récent au plus ancien.
 void CollectSwings(int lookback, int depth, double &swHigh[], double &swLow[])
   {
-   ArrayResize(swHigh, 0);
-   ArrayResize(swLow,  0);
-
-   int need = lookback + depth * 2 + 2;
-   double h[], l[];
-   if(CopyHigh(_Symbol, PERIOD_CURRENT, 0, need, h) < need) return;
-   if(CopyLow (_Symbol, PERIOD_CURRENT, 0, need, l) < need) return;
-   ArraySetAsSeries(h, true);
-   ArraySetAsSeries(l, true);
-
-   for(int i = depth; i < lookback + depth; i++)
-     {
-      bool isH = true, isL = true;
-      for(int k = 1; k <= depth; k++)
-        {
-         if(h[i] <= h[i-k] || h[i] <= h[i+k]) isH = false;
-         if(l[i] >= l[i-k] || l[i] >= l[i+k]) isL = false;
-        }
-      if(isH) { int n = ArraySize(swHigh); ArrayResize(swHigh, n+1); swHigh[n] = h[i]; }
-      if(isL) { int n = ArraySize(swLow);  ArrayResize(swLow,  n+1); swLow[n]  = l[i]; }
-     }
+   FDK_CollectSwings(_Symbol, PERIOD_CURRENT, lookback, depth, swHigh, swLow);
   }
 
 //+------------------------------------------------------------------+
@@ -1248,33 +1156,9 @@ void CollectSwings(int lookback, int depth, double &swHigh[], double &swLow[])
 // pas de niveau exploitable — mieux vaut n'afficher rien qu'un chiffre inventé.
 bool StructureLevels(int dir, double price, double &sl, double &tp1, double &tp2)
   {
-   sl = 0.0; tp1 = 0.0; tp2 = 0.0;
-
-   double swH[], swL[];
-   CollectSwings(LevelsLookback, LevelsDepth, swH, swL);
-   double buf = SL_BufferPips * PipSize();
-
-   if(dir < 0)
-     {
-      for(int i = 0; i < ArraySize(swH); i++)
-         if(swH[i] > price) { sl = swH[i] + buf; break; }
-      for(int i = 0; i < ArraySize(swL); i++)
-         if(swL[i] < price) { tp1 = swL[i]; break; }
-      if(tp1 > 0.0)
-         for(int i = 0; i < ArraySize(swL); i++)
-            if(swL[i] < tp1) { tp2 = swL[i]; break; }
-     }
-   else
-     {
-      for(int i = 0; i < ArraySize(swL); i++)
-         if(swL[i] < price) { sl = swL[i] - buf; break; }
-      for(int i = 0; i < ArraySize(swH); i++)
-         if(swH[i] > price) { tp1 = swH[i]; break; }
-      if(tp1 > 0.0)
-         for(int i = 0; i < ArraySize(swH); i++)
-            if(swH[i] > tp1) { tp2 = swH[i]; break; }
-     }
-   return(sl > 0.0 && tp1 > 0.0);
+   return(FDK_StructureLevels(_Symbol, PERIOD_CURRENT, dir, price,
+                              LevelsLookback, LevelsDepth,
+                              SL_BufferPips * PipSize(), sl, tp1, tp2));
   }
 
 //+------------------------------------------------------------------+
