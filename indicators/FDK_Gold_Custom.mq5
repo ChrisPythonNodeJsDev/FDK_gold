@@ -1705,9 +1705,14 @@ void UpdatePanel()
    // commentaire doit montrer exactement la valeur qui a tranché.
    if(rr > 0.0)
      {
-      color rc = (rr >= 1.5) ? clrLightGreen : (rr >= 1.0 ? clrOrange : clrTomato);
+      // Le verdict doit se prononcer sur le seuil REELLEMENT applique par le
+      // filtre. Comparer a 1.0 en dur affichait "OK" sur des rapports que
+      // MinRR rejette — le panneau contredisait la decision.
+      double seuil = (MinRR > 0.0) ? MinRR : 1.0;
+      color rc = (rr >= seuil) ? clrLightGreen
+                               : (rr >= seuil * 0.7 ? clrOrange : clrTomato);
       SetCommentLine(cl++, StringFormat("%s Gain/risque TP1 : %.2f pour 1",
-                     rr >= 1.0 ? " OK " : " NON", rr), rc);
+                     rr >= seuil ? " OK " : " NON", rr), rc);
       // Sous 0.05 la cible est deja atteinte : annoncer "equilibre a 100%"
       // laisserait croire a un setup difficile au lieu d'un setup vide.
       if(rr < 0.05)
