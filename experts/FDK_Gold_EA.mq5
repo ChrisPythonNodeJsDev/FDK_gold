@@ -52,7 +52,7 @@ input FDK_SLMode SL_Mode    = FDK_SL_FIXE;
 input double SL_FixedPips   = 200;
 
 input group "=== Filtre gain/risque ==="
-input double MinRR     = 1.5;          // 0 = filtre désactivé
+input double MinRR     = 1.0;          // 0 = filtre désactivé
 input double MinSL_ATR = 0.5;          // Stop mini, en multiples d'ATR
 
 input group "=== Exécution ==="

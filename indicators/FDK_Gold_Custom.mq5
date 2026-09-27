@@ -118,7 +118,7 @@ input double AsiaExpandedRatio = 1.0;   // Seuil (x moyenne) au-delà duquel l'a
 //--- Mesure sur 15 mois : un seuil a 1.5 conserve 41 % des configurations,
 //--- 1.0 en conserve 53 %. Le filtre durcit sans steriliser.
 input group "=== Filtre gain/risque ==="
-input double MinRR    = 1.5;   // R:R mini sur TP1 (0 = désactivé)
+input double MinRR    = 1.0;   // R:R mini sur TP1 (0 = désactivé)
 input double MinSL_ATR = 0.5;  // Stop mini, en multiples d'ATR (0 = désactivé)
 
 input group "=== Rafraîchissement ==="
