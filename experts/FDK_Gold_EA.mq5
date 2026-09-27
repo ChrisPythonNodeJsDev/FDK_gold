@@ -48,6 +48,8 @@ input group "=== Niveaux SL / TP ==="
 input int    LevelsLookback = 150;
 input int    LevelsDepth    = 3;
 input double SL_BufferPips  = 0;
+input FDK_SLMode SL_Mode    = FDK_SL_STRUCTURE;
+input double SL_FixedPips   = 20;
 
 input group "=== Filtre gain/risque ==="
 input double MinRR     = 1.5;          // 0 = filtre désactivé
@@ -191,6 +193,8 @@ void OnTick()
    double buffer = SL_BufferPips * FDK_PipSize(_Digits, _Point);
    FDK_StructureLevels(_Symbol, PERIOD_CURRENT, dir, price,
                        LevelsLookback, LevelsDepth, buffer, sl, tp1, tp2);
+   sl = FDK_StopLoss(SL_Mode, dir, price, sl,
+                     SL_FixedPips, FDK_PipSize(_Digits, _Point));
 
    double rr = FDK_RiskReward(price, sl, tp1);
    double atrBuf[1];

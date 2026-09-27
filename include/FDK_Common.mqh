@@ -378,3 +378,29 @@ bool FDK_LevelsAcceptable(const double price, const double sl, const double atr,
      }
    return(true);
   }
+
+//+------------------------------------------------------------------+
+//| Deux façons de placer le stop.                                    |
+//| STRUCTURE : au-delà du dernier swing opposé. Fidèle au marché,    |
+//|   mais la distance varie énormément — mesurée entre 0.2 et 5 x    |
+//|   ATR — et un swing tout proche produit un stop que le bruit      |
+//|   balaie en quelques minutes.                                     |
+//| FIXE : un écart constant en pips. Moins fidèle à la structure,    |
+//|   mais la perte maximale est connue d'avance et identique à       |
+//|   chaque trade, ce qui rend le dimensionnement possible.          |
+//+------------------------------------------------------------------+
+enum FDK_SLMode { FDK_SL_STRUCTURE, FDK_SL_FIXE };
+
+double FDK_StopLoss(const FDK_SLMode mode, const int dir, const double price,
+                    const double structSL, const double fixedPips,
+                    const double pipSize)
+  {
+   if(mode == FDK_SL_FIXE)
+     {
+      if(fixedPips <= 0.0 || pipSize <= 0.0)
+         return(0.0);
+      double d = fixedPips * pipSize;
+      return((dir > 0) ? price - d : price + d);
+     }
+   return(structSL);
+  }

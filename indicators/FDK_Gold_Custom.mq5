@@ -42,6 +42,8 @@ input group "=== Niveaux SL / TP (structure) ==="
 input int    LevelsLookback = 150;   // Barres analysées pour trouver les swings
 input int    LevelsDepth    = 3;     // Profondeur de détection des swings
 input double SL_BufferPips  = 0;     // Marge au-delà du swing pour le SL (pips)
+input FDK_SLMode SL_Mode    = FDK_SL_STRUCTURE;  // Structure ou écart fixe
+input double SL_FixedPips   = 20;    // Écart du stop en mode FIXE (pips)
 
 input group "=== Affichage ==="
 input color  ColorAsia        = clrDodgerBlue;
@@ -1528,6 +1530,9 @@ void RefreshContext()
                            : ((gCtxBiasM15 != 0) ? gCtxBiasM15 : gCtxBiasH4);
    gCtxSL = 0.0; gCtxTP1 = 0.0; gCtxTP2 = 0.0;
    StructureLevels(dir, price, gCtxSL, gCtxTP1, gCtxTP2);
+   // Le mode FIXE remplace le stop structurel par un écart constant : la
+   // perte maximale devient connue d'avance et identique à chaque trade.
+   gCtxSL = FDK_StopLoss(SL_Mode, dir, price, gCtxSL, SL_FixedPips, PipSize());
   }
 
 //+------------------------------------------------------------------+
@@ -1720,7 +1725,9 @@ void UpdatePanel()
    else
       SetPanelLine(line++, "Projection (aucun signal figé)", clrGray);
 
-   string slLab = (sgn < 0) ? "dernier haut" : "dernier bas";
+   string slLab = (SL_Mode == FDK_SL_FIXE)
+                  ? StringFormat("%.0f pips", SL_FixedPips)
+                  : ((sgn < 0) ? "dernier haut" : "dernier bas");
    string tpLab = (sgn < 0) ? "plus bas"      : "plus haut";
 
    SetPanelLine(line++, sl  > 0.0 ? StringFormat("SL  %s  (%s)",  DoubleToString(sl,  digits), slLab)
