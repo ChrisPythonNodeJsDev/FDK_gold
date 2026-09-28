@@ -1535,11 +1535,10 @@ void RefreshContext()
    StructureLevels(dir, price, gCtxSL, gCtxTP1, gCtxTP2);
    // Le mode FIXE remplace le stop structurel par un écart constant : la
    // perte maximale devient connue d'avance et identique à chaque trade.
-   gCtxSL = FDK_StopLoss(SL_Mode, dir, price, gCtxSL, SL_FixedPips, PipSize());
-   // Cibles calculees apres le stop : en mode fixe elles partent du prix,
-   // donc le rapport gain/risque devient constant d'un trade a l'autre.
-   FDK_Targets(TP_Mode, dir, price, gCtxTP1, gCtxTP2,
-               TP1_FixedPips, TP2_FixedPips, PipSize(), gCtxTP1, gCtxTP2);
+   // Les niveaux FIXES ne sont PAS mis en cache ici : un décalage constant
+   // calculé au prix d'ouverture puis comparé au prix courant fait dériver
+   // le rapport — 1.42 au lieu du 1.50 promis. Ils sont appliqués au prix
+   // vivant dans UpdatePanel, où le rapport se calcule.
   }
 
 //+------------------------------------------------------------------+
@@ -1586,6 +1585,12 @@ void UpdatePanel()
    int sgn = (dir >= 0) ? 1 : -1;
 
    double liveSL = gCtxSL, liveTP1 = gCtxTP1, liveTP2 = gCtxTP2;
+
+   // Décalages fixes appliqués au prix courant : le rapport reste alors
+   // exactement celui qui est configuré, à chaque tick.
+   liveSL = FDK_StopLoss(SL_Mode, dir, price, liveSL, SL_FixedPips, PipSize());
+   FDK_Targets(TP_Mode, dir, price, liveTP1, liveTP2,
+               TP1_FixedPips, TP2_FixedPips, PipSize(), liveTP1, liveTP2);
 
    // Rapport gain/risque du setup courant : c'est lui qui distingue un bon
    // signal d'un mauvais, bien plus que le sens choisi.
