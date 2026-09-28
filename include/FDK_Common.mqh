@@ -111,6 +111,103 @@ int FDK_Bias(const string sym, const ENUM_TIMEFRAMES tf,
   }
 
 //+------------------------------------------------------------------+
+//| Biais par CASSURE DE STRUCTURE.                                   |
+//|                                                                   |
+//| Le détecteur ci-dessus exige que les deux derniers sommets ET les |
+//| deux derniers creux soient ordonnés dans le même sens. Mesuré sur |
+//| 6000 bougies H4, il répond NEUTRE 64 % du temps, et les bougies   |
+//| pendant lesquelles il est neutre sont plus grandes que les autres |
+//| (médiane 5.20 $ contre 4.30 $) : il perd le fil précisément quand |
+//| le marché se décide. L'écran affichait donc « neutre » pendant    |
+//| que l'analyste lisait « baissier » sur le même graphique.         |
+//|                                                                   |
+//| Ici on suit la méthode décrite dans les vidéos : la direction est |
+//| donnée par le dernier franchissement EN CLÔTURE d'un sommet ou    |
+//| d'un creux confirmé, et elle est conservée jusqu'au franchissement|
+//| inverse. Le déplacement exigé au-delà du niveau (en multiples     |
+//| d'ATR) écarte les débordements d'un tick : c'est le « aggressive  |
+//| move » des vidéos, sans lequel une cassure ne confirme rien.      |
+//|                                                                   |
+//| Ce détecteur ne renvoie jamais NEUTRE une fois amorcé, et il est  |
+//| symétrique. Il n'est pas pour autant démontré prédictif : sur     |
+//| échantillons indépendants, ni l'un ni l'autre ne sort du bruit.   |
+//+------------------------------------------------------------------+
+int FDK_BiasBOS(const string sym, const ENUM_TIMEFRAMES tf,
+                const int depth, const double dispAtr,
+                const int barsBack, int startShift = 0)
+  {
+   int n = barsBack;
+   if(n < depth * 4 + 30) n = depth * 4 + 30;
+   if(startShift < 0) startShift = 0;
+
+   double h[], l[], c[];
+   if(CopyHigh (sym, tf, startShift, n, h) < n) return(0);
+   if(CopyLow  (sym, tf, startShift, n, l) < n) return(0);
+   if(CopyClose(sym, tf, startShift, n, c) < n) return(0);
+   ArraySetAsSeries(h, true);
+   ArraySetAsSeries(l, true);
+   ArraySetAsSeries(c, true);
+
+   // ATR de Wilder, calculée du plus ancien vers le plus récent pour que le
+   // seuil de déplacement suive la volatilité du moment.
+   double atr[];
+   ArrayResize(atr, n);
+   ArraySetAsSeries(atr, true);
+   atr[n-1] = h[n-1] - l[n-1];
+   for(int i = n - 2; i >= 0; i--)
+     {
+      double tr = MathMax(h[i] - l[i],
+                  MathMax(MathAbs(h[i] - c[i+1]), MathAbs(l[i] - c[i+1])));
+      atr[i] = (atr[i+1] * 13.0 + tr) / 14.0;
+     }
+
+   int    biais = 0;
+   double refH = 0.0, refL = 0.0;
+   bool   hasH = false, hasL = false;
+
+   for(int i = n - 1 - depth; i >= 0; i--)
+     {
+      int j = i + depth;                 // fractale centrée en j, confirmée en i
+      if(j + depth <= n - 1)
+        {
+         bool isH = true, isL = true;
+         for(int k = 1; k <= depth; k++)
+           {
+            if(h[j] <= h[j+k] || h[j] <= h[j-k]) isH = false;
+            if(l[j] >= l[j+k] || l[j] >= l[j-k]) isL = false;
+           }
+         if(isH) { refH = h[j]; hasH = true; }
+         if(isL) { refL = l[j]; hasL = true; }
+        }
+
+      double marge = dispAtr * atr[i];
+      if(hasH && c[i] > refH + marge)      { biais =  1; hasH = false; }
+      else if(hasL && c[i] < refL - marge) { biais = -1; hasL = false; }
+     }
+   return(biais);
+  }
+
+//+------------------------------------------------------------------+
+enum FDK_BiasMode
+  {
+   FDK_BIAIS_FRACTALES,   // Deux derniers swings comparés (ancien)
+   FDK_BIAIS_CASSURE      // Dernière cassure de structure
+  };
+
+//+------------------------------------------------------------------+
+//| Aiguillage unique : l'indicateur et l'EA passent tous deux ici,   |
+//| sinon l'écran et le backtest finissent par diverger.              |
+//+------------------------------------------------------------------+
+int FDK_BiasOf(const FDK_BiasMode mode, const string sym,
+               const ENUM_TIMEFRAMES tf, const int lookback, const int depth,
+               const double dispAtr, const int barsBack, int startShift = 0)
+  {
+   if(mode == FDK_BIAIS_CASSURE)
+      return(FDK_BiasBOS(sym, tf, depth, dispAtr, barsBack, startShift));
+   return(FDK_Bias(sym, tf, lookback, depth, startShift));
+  }
+
+//+------------------------------------------------------------------+
 //| Plus haut et plus bas entre deux instants.                        |
 //+------------------------------------------------------------------+
 bool FDK_RangeHiLo(const string sym, const ENUM_TIMEFRAMES tf,

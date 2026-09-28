@@ -43,6 +43,9 @@ input bool          AllowNeutralH4 = true;
 input group "=== Structure / Biais ==="
 input int    StructureLookback = 20;
 input int    SwingDepth        = 3;
+input FDK_BiasMode BiasMode    = FDK_BIAIS_CASSURE;
+input double BiasDisplacementATR = 1.0;  // Déplacement exigé au-delà du niveau
+input int    BiasBarsBack        = 300;  // Historique parcouru (cassure la plus ancienne mesurée : 141 bougies)
 
 input group "=== Niveaux SL / TP ==="
 input int    LevelsLookback = 150;
@@ -169,8 +172,10 @@ void OnTick()
    BuildSessions(sess);
    string active = FDK_ActiveSession(FDK_SecOfDay(now), sess);
 
-   int biasM15 = FDK_Bias(_Symbol, PERIOD_M15, StructureLookback, SwingDepth);
-   int biasH4  = FDK_Bias(_Symbol, PERIOD_H4,  StructureLookback, SwingDepth);
+   int biasM15 = FDK_BiasOf(BiasMode, _Symbol, PERIOD_M15, StructureLookback,
+                            SwingDepth, BiasDisplacementATR, BiasBarsBack);
+   int biasH4  = FDK_BiasOf(BiasMode, _Symbol, PERIOD_H4,  StructureLookback,
+                            SwingDepth, BiasDisplacementATR, BiasBarsBack);
 
    // Séquence AMD du jour, évaluée exactement comme dans l'indicateur.
    datetime beninMidnight = now - (now % 86400) - off * 3600;

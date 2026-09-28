@@ -30,6 +30,9 @@ input int    NewYorkPMEnd   = 1900;
 input group "=== Structure / Biais ==="
 input int    StructureLookback = 20;    // Barres utilisées pour détecter la structure (swings)
 input int    SwingDepth        = 3;     // Profondeur de détection des swing highs/lows
+input FDK_BiasMode BiasMode    = FDK_BIAIS_CASSURE; // Méthode de lecture du biais
+input double BiasDisplacementATR = 1.0;  // Déplacement exigé au-delà du niveau cassé
+input int    BiasBarsBack        = 300;  // Historique parcouru (cassure la plus ancienne mesurée : 141 bougies)
 
 input group "=== Indicateurs ==="
 input int    RSIPeriod = 14;
@@ -668,7 +671,8 @@ void DrawHLine(string name, double price, color clr, string text)
 // that bar, which is what the per-day chart labels need.
 int ComputeBias(ENUM_TIMEFRAMES tf, int startShift = 0)
   {
-   return(FDK_Bias(_Symbol, tf, StructureLookback, SwingDepth, startShift));
+   return(FDK_BiasOf(BiasMode, _Symbol, tf, StructureLookback, SwingDepth,
+                     BiasDisplacementATR, BiasBarsBack, startShift));
   }
 
 //+------------------------------------------------------------------+

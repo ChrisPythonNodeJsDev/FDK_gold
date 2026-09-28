@@ -1,0 +1,62 @@
+Biais : detecteur actuel (fractales) contre cassure de structure
+XAUUSD, H4 2022-12 -> 2026-09 (6000 bougies), M15 2025-06 -> 2026-09 (30000)
+
+derive +12.49$ — ecart a la derive sur 30 bougies H4, par etat
+
+variante                           repartition    haussier           baissier          
+detecteur actuel (fractales)       h19/b16/n65    h +12.27$ t=+4.77  b  -0.54$ t=-0.17   ensemble  +6.94$ t=+3.49
+cassure de structure               h55/b45/n0     h  +2.10$ t=+1.18  b  -2.63$ t=-1.37   ensemble  +2.34$ t=+1.80
+cassure + deplacement 0.10 x ATR   h55/b45/n0     h  +2.11$ t=+1.18  b  -2.63$ t=-1.38   ensemble  +2.34$ t=+1.79
+cassure + deplacement 0.25 x ATR   h55/b45/n0     h  +2.80$ t=+1.56  b  -3.43$ t=-1.81   ensemble  +3.09$ t=+2.37
+cassure + deplacement 0.50 x ATR   h56/b44/n0     h  +4.19$ t=+2.32  b  -5.47$ t=-2.93   ensemble  +4.75$ t=+3.65
+cassure + deplacement 1.00 x ATR   h58/b42/n0     h  +6.07$ t=+3.68  b  -8.42$ t=-4.02   ensemble  +7.06$ t=+5.43
+cassure recente (< 3 bougies)      h16/b12/n71    h  +6.71$ t=+2.48  b  -3.09$ t=-0.87   ensemble  +5.14$ t=+2.37
+cassure recente (< 6 bougies)      h27/b21/n52    h  +5.40$ t=+2.49  b  -2.51$ t=-0.91   ensemble  +4.14$ t=+2.41
+cassure recente (< 12 bougies)     h43/b34/n23    h  +2.55$ t=+1.32  b  -2.17$ t=-0.98   ensemble  +2.38$ t=+1.64
+cassure recente (< 24 bougies)     h54/b43/n3     h  +1.83$ t=+1.01  b  -2.03$ t=-1.04   ensemble  +1.92$ t=+1.45
+cassure 0.25xATR + recente (<12)   h38/b31/n31    h  +0.89$ t=+0.43  b  -1.02$ t=-0.44   ensemble  +0.95$ t=+0.61
+accord fractales + cassure         h16/b12/n72    h +13.74$ t=+4.78  b  -0.56$ t=-0.16   ensemble  +7.91$ t=+3.58
+
+=== la valeur du seuil de deplacement est-elle un pic isole ? ===
+deplacement 0.0 x ATR              h55/b45/n0     h  +2.10$ t=+1.18  b  -2.63$ t=-1.37   ensemble  +2.34$ t=+1.80
+deplacement 0.5 x ATR              h56/b44/n0     h  +4.19$ t=+2.32  b  -5.47$ t=-2.93   ensemble  +4.75$ t=+3.65
+deplacement 1.0 x ATR              h58/b42/n0     h  +6.07$ t=+3.68  b  -8.42$ t=-4.02   ensemble  +7.06$ t=+5.43
+deplacement 1.5 x ATR              h59/b41/n0     h  +6.07$ t=+3.65  b  -8.77$ t=-4.20   ensemble  +7.18$ t=+5.52
+deplacement 2.0 x ATR              h65/b34/n1     h  +5.40$ t=+3.47  b -10.86$ t=-4.55   ensemble  +7.29$ t=+5.56
+deplacement 3.0 x ATR              h75/b23/n2     h  +4.15$ t=+2.62  b -12.76$ t=-5.49   ensemble  +6.17$ t=+4.63
+
+=== hors echantillon : ajuste sur la premiere moitie, verifie sur la seconde ===
+coupure : 2024-11-08 04:00:00  (prix 2687)
+ 1re moitie :
+  detecteur actuel           derive  +7.84$   haussier  +6.01$  baissier  -5.00$  ensemble  +5.54$ t=+4.66
+  cassure + 1.0 x ATR        derive  +7.84$   haussier  +4.11$  baissier  -5.45$  ensemble  +4.69$ t=+6.45
+ 2e moitie (hors ech.) :
+  detecteur actuel           derive +17.14$   haussier +20.88$  baissier  +6.60$  ensemble  +8.62$ t=+2.05
+  cassure + 1.0 x ATR        derive +17.14$   haussier  +7.69$  baissier -11.27$  ensemble  +9.14$ t=+3.67
+
+=== le meme detecteur sur M15 ===
+derive M15 sur 12 h : +1.48$
+variante                           repartition    haussier           baissier          
+detecteur actuel (fractales)       h15/b16/n69    h  -2.20$ t=-2.67  b  +0.76$ t=+0.99   ensemble  -1.46$ t=-2.59
+cassure + deplacement 0.0 x ATR    h53/b47/n0     h  +1.68$ t=+4.26  b  -1.86$ t=-3.90   ensemble  +1.77$ t=+5.75
+cassure + deplacement 0.5 x ATR    h52/b48/n0     h  +3.10$ t=+7.79  b  -3.37$ t=-7.13   ensemble  +3.23$ t=+10.53
+cassure + deplacement 1.0 x ATR    h52/b48/n0     h  +3.14$ t=+7.65  b  -3.40$ t=-7.40   ensemble  +3.26$ t=+10.64
+cassure + deplacement 2.0 x ATR    h52/b48/n0     h  +2.30$ t=+5.97  b  -2.44$ t=-5.03   ensemble  +2.37$ t=+7.70
+
+### ECHANTILLONS INDEPENDANTS (fenetres non chevauchantes) ###
+Les t ci-dessus sont gonfles : les fenetres glissantes se recouvrent.
+H4 — horizon 30 bougies, echantillons INDEPENDANTS (1 bougie sur 30)
+  detecteur actuel               n=  71  haussier +23.95$  baissier  +9.66$  ensemble  +9.75$  IC95 [-17.94;+37.45]  t=+0.69
+  cassure + 1.0 x ATR            n= 198  haussier  +2.69$  baissier  -4.32$  ensemble  +3.37$  IC95 [-11.94;+18.67]  t=+0.43
+  cassure + 2.0 x ATR            n= 197  haussier  +5.80$  baissier -11.84$  ensemble  +7.92$  IC95 [ -7.43;+23.26]  t=+1.01
+
+M15 — horizon 48 bougies (12 h), echantillons INDEPENDANTS (1 bougie sur 48)
+  detecteur actuel               n= 193  haussier  +1.47$  baissier  +2.15$  ensemble  -0.29$  IC95 [ -7.48; +6.90]  t=-0.08
+  cassure + 1.0 x ATR            n= 623  haussier  +4.57$  baissier  -4.88$  ensemble  +4.72$  IC95 [ +0.61; +8.83]  t=+2.25
+
+M15 — horizon 16 bougies (4 h), echantillons INDEPENDANTS
+  detecteur actuel               n= 573  haussier  -0.59$  baissier  +0.52$  ensemble  -0.55$  IC95 [ -3.21; +2.10]  t=-0.41
+  cassure + 1.0 x ATR            n=1870  haussier  +1.06$  baissier  -1.16$  ensemble  +1.11$  IC95 [ -0.30; +2.52]  t=+1.54
+
+H4: age de la cassure en cours — mediane 13  90e 40  99e 77  max 99 bougies
+M15: age de la cassure en cours — mediane 15  90e 42  99e 83  max 141 bougies
