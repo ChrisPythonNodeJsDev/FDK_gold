@@ -263,9 +263,24 @@ void OnTick()
       return;
      }
 
+   // Le lot doit être divisé si MaxPositions augmente, sinon le risque par
+   // événement est multiplié d'autant. Un lot hors bornes ou hors pas fait
+   // rejeter l'ordre par le broker et le signal disparaît du rapport : on
+   // le normalise et on le signale.
+   double vmin  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double vmax  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+   double vstep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   double vol   = Lots;
+   if(vstep > 0.0) vol = MathRound(vol / vstep) * vstep;
+   if(vmin  > 0.0 && vol < vmin) vol = vmin;
+   if(vmax  > 0.0 && vol > vmax) vol = vmax;
+   if(MathAbs(vol - Lots) > 1e-8)
+      PrintFormat("FDK_EA: lot %.2f ajusté à %.2f (min %.2f, max %.2f, pas %.2f)",
+                  Lots, vol, vmin, vmax, vstep);
+
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    if(dir > 0)
-      gTrade.Buy(Lots, _Symbol, ask, sl, tp1, "FDK long");
+      gTrade.Buy(vol, _Symbol, ask, sl, tp1, "FDK long");
    else
-      gTrade.Sell(Lots, _Symbol, price, sl, tp1, "FDK short");
+      gTrade.Sell(vol, _Symbol, price, sl, tp1, "FDK short");
   }
