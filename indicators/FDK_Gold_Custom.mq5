@@ -102,6 +102,7 @@ input int    ZoneOpacity       = 55;     // 0-255, opacité du remplissage des z
 input group "=== Déclenchement ==="
 input FDK_EntryMode EntryMode   = FDK_ENTRY_LES_DEUX;
 input bool       AllowNeutralH4 = true;  // H4 neutre n'interdit plus l'entrée
+input bool       ForbidH4Contre = true;  // Interdire l'AMD à contresens du biais H4
 
 input group "=== Sessions tradables ==="
 input bool   TradeAsia = false;   // Autoriser les entrées pendant l'Asie
@@ -1606,7 +1607,7 @@ void UpdatePanel()
 
    FDK_Decision dec;
    FDK_Decide(EntryMode, AllowNeutralH4, biasM15, biasH4, amd,
-              sessionActive, asiaBlocked, dec);
+              sessionActive, asiaBlocked, dec, ForbidH4Contre);
 
    bool h4Neutral    = dec.h4Neutral;
    bool aligned      = dec.aligned;
@@ -1841,7 +1842,11 @@ void UpdatePanel()
    else
       SetCommentLine(cl++, " NON Biais M15 et H4 s'opposent", clrTomato);
 
-   if(gAmdConfirmed)
+   if(gAmdConfirmed && dec.h4Contre && ForbidH4Contre)
+      SetCommentLine(cl++, " NON AMD confirme mais a contresens du H4", clrTomato);
+   else if(gAmdConfirmed && dec.h4Contre)
+      SetCommentLine(cl++, " ~   AMD confirme, a contresens du H4", clrOrange);
+   else if(gAmdConfirmed)
       SetCommentLine(cl++, StringFormat(" OK  AMD confirme : distribution %s",
                      gAmdDir > 0 ? "haussiere" : "baissiere"),
                      gAmdDir > 0 ? BullishColor : BearishColor);

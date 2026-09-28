@@ -39,6 +39,7 @@ input bool   TradeAsia      = false;   // L'Asie est la phase d'accumulation
 input group "=== Déclenchement ==="
 input FDK_EntryMode EntryMode   = FDK_ENTRY_LES_DEUX;
 input bool          AllowNeutralH4 = true;
+input bool          ForbidH4Contre = true;   // Interdire l'AMD à contresens du H4
 
 input group "=== Structure / Biais ==="
 input int    StructureLookback = 20;
@@ -198,7 +199,7 @@ void OnTick()
 
    FDK_Decision dec;
    FDK_Decide(EntryMode, AllowNeutralH4, biasM15, biasH4, amd,
-              active != "", asiaBlocked, dec);
+              active != "", asiaBlocked, dec, ForbidH4Contre);
 
    bool allowed = dec.allowed;
    int  dir     = dec.dir;

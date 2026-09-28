@@ -21,6 +21,26 @@ Deux pistes ont été testées puis écartées :
 La règle SL/TP par structure a un rapport gain/risque médian de **0.58** :
 il faudrait 63 % de réussite pour l'équilibre, on en observe 52 à 62 %.
 
+### Le seul résultat qui se soit reproduit
+
+Simulateur MT5, biais par cassure de structure, 2024.01 → 2026.04 puis
+2026.05 → 2026.09 (fenêtre choisie après coup, marché de sens inverse) :
+
+| | en échantillon | hors échantillon |
+|---|---|---|
+| ensemble | +57.8 R (433 trades) | **−3.9 R** (111 trades) |
+| AMD dans le sens du H4 | +0.31 R (n=40) | +0.94 R (n=9) |
+| AMD à contresens du H4 | −0.39 R (n=37) | −0.62 R (n=13) |
+
+L'avantage d'ensemble ne s'est pas reproduit : le gain venait de
+l'exposition acheteuse pendant que l'or montait de 138 %. Forcer tous les
+signaux dans le sens du marché bat la direction choisie par le
+détecteur, dans les deux fenêtres.
+
+Seule la séparation par le H4 tient : −0.452 R/trade sur les 50 trades à
+contresens réunis, t = −2.66. D'où `ForbidH4Contre`, actif par défaut.
+C'est un filtre qui retire des trades perdants, pas un avantage.
+
 Ne pas présenter cet indicateur comme un générateur de signaux validé.
 Ne pas donner de conseil de position, de niveau d'entrée ou de
 dimensionnement : l'utilisateur trade en démo et décide seul.

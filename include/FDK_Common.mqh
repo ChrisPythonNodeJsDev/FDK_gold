@@ -350,6 +350,7 @@ struct FDK_Decision
    bool amdSignal;
    bool aligned;
    bool h4Neutral;
+   bool h4Contre;      // AMD pointe à l'opposé du biais H4
    int  dir;
   };
 
@@ -442,13 +443,26 @@ void FDK_Decide(const FDK_EntryMode mode, const bool allowNeutralH4,
                 const int biasM15, const int biasH4,
                 const FDK_Amd &amd,
                 const bool sessionActive, const bool asiaBlocked,
-                FDK_Decision &d)
+                FDK_Decision &d, const bool forbidH4Contre = true)
   {
    d.h4Neutral  = (biasH4 == 0);
    d.aligned    = (biasM15 != 0
                    && (biasM15 == biasH4 || (allowNeutralH4 && d.h4Neutral)));
    d.biasSignal = d.aligned && sessionActive && !asiaBlocked;
    d.amdSignal  = amd.confirmed && sessionActive && !asiaBlocked;
+
+   // Le chemin BIAIS ne peut pas contredire le H4 : d.aligned l'exige déjà.
+   // Le chemin AMD, lui, l'ignorait complètement — et c'est de là que
+   // venaient TOUTES les entrées à contresens du H4. Mesuré sur les deux
+   // passages du Simulateur, la séquence AMD se sépare en deux populations
+   // opposées qui s'annulaient :
+   //   AMD dans le sens du H4 : +0.31 R (n=40) puis +0.94 R (n=9)
+   //   AMD contre le H4       : -0.39 R (n=37) puis -0.62 R (n=13)
+   // La seconde moitié est le seul résultat du projet qui se soit reproduit
+   // sur une période choisie après coup, et dans un marché de sens inverse.
+   d.h4Contre = (biasH4 != 0 && amd.dir != 0 && amd.dir != biasH4);
+   if(forbidH4Contre && d.h4Contre)
+      d.amdSignal = false;
 
    if(mode == FDK_ENTRY_BIAIS)       d.allowed = d.biasSignal;
    else if(mode == FDK_ENTRY_AMD)    d.allowed = d.amdSignal;
