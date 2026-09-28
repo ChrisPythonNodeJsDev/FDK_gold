@@ -1,0 +1,49 @@
+Rejeu des signaux du Simulateur sur les bougies M15 exportees
+fenetre 2025-06-19 -> 2026-04-29, 572 signaux, spread 0.16 observe
+
+M15 : 30000 bougies  2025-06-19 07:15:00 -> 2026-09-25 15:30:00
+signaux du journal : 1506, dont 572 tombent dans la fenetre du CSV
+fenetre rejouee : 2025-06-19 08:30:00 -> 2026-04-29 14:30:00
+
+=== 1. jusqu'ou va le prix AVANT de perdre ? (SL 200 / TP 300, 572 signaux) ===
+perdants 347  gagnants 225
+gain maximal atteint par un trade PERDANT (pips) :
+  mediane 75   moyenne 102   max 304
+   145 perdants (41.8%) sont montes a +100 pips avant de revenir au stop
+    98 perdants (28.2%) sont montes a +150 pips avant de revenir au stop
+    66 perdants (19.0%) sont montes a +200 pips avant de revenir au stop
+    33 perdants ( 9.5%) sont montes a +250 pips avant de revenir au stop
+    14 perdants ( 4.0%) sont montes a +280 pips avant de revenir au stop
+
+=== 2. grille de cibles (stop fixe a 200 pips, tous les signaux pris) ===
+   TP   R:R  reussite   seuil  total pips   R/trade               IC95
+   80  0.40     68.0%   71.4%       -5480   -0.0479 [-0.101;+0.006]
+  100  0.50     63.5%   66.7%       -5500   -0.0481 [-0.107;+0.011]
+  120  0.60     60.3%   62.5%       -4000   -0.0350 [-0.099;+0.029]
+  150  0.75     55.6%   57.1%       -3100   -0.0271 [-0.098;+0.044]
+  180  0.90     51.9%   52.6%       -1540   -0.0135 [-0.091;+0.064]
+  200  1.00     50.2%   50.0%        +400   +0.0035 [-0.079;+0.086]
+  250  1.25     44.6%   44.4%        +350   +0.0031 [-0.089;+0.095]
+  300  1.50     39.3%   40.0%       -1715   -0.0150 [-0.115;+0.085]
+  400  2.00     33.2%   33.3%        -375   -0.0033 [-0.119;+0.112]
+  500  2.50     27.8%   28.6%       -4180   -0.0365 [-0.164;+0.091]
+
+=== 3. effet de la limite d'une position a la fois (SL 200 / TP 300) ===
+  1 position(s) :  334 trades pris   35.3% reussite     -7800 pips  -0.1168 R/trade
+  2 position(s) :  464 trades pris   37.3% reussite     -6300 pips  -0.0679 R/trade
+  3 position(s) :  526 trades pris   38.0% reussite     -5015 pips  -0.0477 R/trade
+  5 position(s) :  567 trades pris   39.5% reussite     -1215 pips  -0.0107 R/trade
+  10 position(s):  572 trades pris   39.3% reussite     -1715 pips  -0.0150 R/trade
+  sans limite   :  572 trades pris   39.3% reussite     -1715 pips  -0.0150 R/trade
+
+=== 4. stop ramene a l'entree une fois X pips acquis (SL 200 / TP 300) ===
+          sans:    -1715 pips  -0.0150 R/trade
+     +100 pips:   -13400 pips  -0.1171 R/trade  (15.7% positifs, 280 a l'equilibre)
+     +150 pips:    -8700 pips  -0.0760 R/trade  (24.0% positifs, 186 a l'equilibre)
+     +200 pips:    -5500 pips  -0.0481 R/trade  (29.5% positifs, 122 a l'equilibre)
+     +250 pips:    -4300 pips  -0.0376 R/trade  (34.1% positifs, 63 a l'equilibre)
+
+fenetre rejouee : 2025-06-19 08:30:00 -> 2026-04-29 14:30:00
+positions ouvertes simultanement si aucune limite :
+  maximum 8   exposition nette maximale 6 positions dans le meme sens
+  95% du temps : 4 positions ou moins

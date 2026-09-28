@@ -59,6 +59,12 @@ input double MinRR     = 1.0;          // 0 = filtre désactivé
 input double MinSL_ATR = 0.5;          // Stop mini, en multiples d'ATR
 
 input group "=== Exécution ==="
+// Une seule position bloquait 63 % des signaux sur le test 2024-2026, et le
+// choix de celui qui passe ne dependait que de l'ordre d'arrivee. En rejouant
+// la fenetre 2025-06 / 2026-04 sans limite, 8 positions ont coexisté au plus
+// fort, 4 ou moins 95 % du temps : le lot doit etre divise d'autant si le
+// risque par evenement doit rester constant.
+input int    MaxPositions = 1;    // Positions simultanees autorisees
 input double Lots        = 0.10;
 input long   MagicNumber = 20260927;
 
@@ -99,17 +105,18 @@ void BuildSessions(FDK_Session &s[])
   }
 
 //+------------------------------------------------------------------+
-bool HasPosition()
+int CountPositions()
   {
+   int n = 0;
    for(int i = PositionsTotal() - 1; i >= 0; i--)
      {
       ulong tk = PositionGetTicket(i);
       if(tk == 0) continue;
       if(PositionGetString(POSITION_SYMBOL) == _Symbol
          && PositionGetInteger(POSITION_MAGIC) == MagicNumber)
-         return(true);
+         n++;
      }
-   return(false);
+   return(n);
   }
 
 //+------------------------------------------------------------------+
@@ -224,8 +231,17 @@ void OnTick()
                                                   : (dec.amdSignal ? "AMD" : "BIAIS"),
                   biasM15, biasH4, amd.confirmed ? "oui" : "non", rr);
 
-   if(!isNew || HasPosition() || sl <= 0.0 || tp1 <= 0.0)
+   if(!isNew || sl <= 0.0 || tp1 <= 0.0)
       return;
+
+   int ouvertes = CountPositions();
+   if(ouvertes >= MathMax(1, MaxPositions))
+     {
+      PrintFormat("FDK_EA: signal %s non pris — %d position(s) déjà ouverte(s) "
+                  "sur %d autorisée(s)",
+                  dir > 0 ? "LONG" : "SHORT", ouvertes, MathMax(1, MaxPositions));
+      return;
+     }
 
    // Le broker refuse les stops trop proches du prix. Sans ce controle,
    // l'ordre echoue en "Invalid stops" et le signal disparait du rapport :
