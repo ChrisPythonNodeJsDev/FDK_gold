@@ -371,7 +371,12 @@ bool FDK_LevelsAcceptable(const double price, const double sl, const double atr,
       motif = StringFormat("SL_TROP_SERRE_%.2fxATR", risk / atr);
       return(false);
      }
-   if(minRR > 0.0 && rr > 0.0 && rr < minRR)
+   // Tolérance indispensable : le rapport est un quotient de deux
+   // différences de prix à quatre chiffres. Un objectif à 300 pips sur un
+   // stop à 200 pips vaut 1.4999999999999887 quand l'or cote 2018.03, et la
+   // comparaison stricte rejetait alors le signal. Le backtest 2024-2026 a
+   // écarté 135 entrées pour ce seul motif, toutes affichant "R:R 1.50".
+   if(minRR > 0.0 && rr > 0.0 && rr < minRR - 0.0001)
      {
       motif = StringFormat("RR_INSUFFISANT_%.2f", rr);
       return(false);
