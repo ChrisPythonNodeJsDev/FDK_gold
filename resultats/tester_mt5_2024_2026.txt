@@ -1,0 +1,49 @@
+Simulateur MT5 — FDK_Gold_EA — XAUUSD M15 — 2024.01.01 -> 2026.04.30
+Deriv-Demo, 1 minute OHLC, qualite historique 98%, depot 10000 (calcul en pips)
+SL_Mode=FIXE 200 pips, TP1 300 pips, MinRR=1.5, MinSL_ATR=0.5,
+EntryMode=LES_DEUX, AllowNeutralH4=true, TradeAsia=false, 1 position a la fois
+
+trades cloturees : 552
+gagnantes 205 (37.1%)  perdantes 347
+total -8278.0 pips   moyenne -15.00 pips/trade
+gain moyen +299.2   perte moyenne -200.6
+profit factor 0.881   (seuil rentabilite = 40.0% de reussite)
+1 R mesure = 200.6 pips -> resultat = -41.3 R  (-0.0747 R/trade)
+drawdown max 13909 pips (69.3 R)   equity finale -8278 pips
+
+-- par annee --
+2024:  122 trades   45.9% reussite      +3531 pips  ( +17.6 R)
+2025:  269 trades   37.2% reussite      -3979 pips  ( -19.8 R)
+2026:  161 trades   30.4% reussite      -7829 pips  ( -39.0 R)
+
+-- par sens --
+buy :  304 trades   42.1% reussite      +2822 pips
+sell:  248 trades   31.0% reussite     -11100 pips
+
+duree mediane 5.7 h   moyenne 21.4 h
+
+signaux EA 1506   AUTORISE indicateur 1507   ordres traces 552   resultats 552
+signaux non executes : 954 soit 63%
+
+-- resultat par mode d'entree (trades reellement pris) --
+BIAIS       :  459 trades   36.8% reussite      -7622 pips  ( -38.0 R)  moy  -16.61
+AMD         :   84 trades   39.3% reussite       -351 pips  (  -1.8 R)  moy   -4.18
+AMD+BIAIS   :    9 trades   33.3% reussite       -305 pips  (  -1.5 R)  moy  -33.83
+
+-- selon H4 --
+H4 neutre   :  421 trades   34.9% reussite     -10980 pips  moy  -26.08
+H4 aligne   :  118 trades   43.2% reussite      +1812 pips  moy  +15.35
+H4 contre   :   13 trades   53.8% reussite       +891 pips  moy  +68.52
+
+jours avec signaux LONG ET SHORT : 276 / 571 jours (48%)
+jours ou AMD et BIAIS coexistent : 144, dont directions totalement opposees : 79
+
+ENSEMBLE               n= 552  -0.0748 R/trade  IC95 [-0.175 ; +0.026]  t=-1.46
+H4 aligne              n= 118  +0.0765 R/trade  IC95 [-0.147 ; +0.300]  t=+0.67
+H4 contre              n=  13  +0.3416 R/trade  IC95 [-0.361 ; +1.045]  t=+0.95
+H4 neutre              n= 421  -0.1300 R/trade  IC95 [-0.244 ; -0.016]  t=-2.24
+annee 2024             n= 123  +0.1350 R/trade  IC95 [-0.085 ; +0.355]  t=+1.20
+annee 2025             n= 268  -0.0703 R/trade  IC95 [-0.215 ; +0.074]  t=-0.95
+annee 2026             n= 161  -0.2424 R/trade  IC95 [-0.420 ; -0.065]  t=-2.67
+mode AMD               n=  93  -0.0352 R/trade  IC95 [-0.283 ; +0.213]  t=-0.28
+mode BIAIS             n= 459  -0.0828 R/trade  IC95 [-0.193 ; +0.027]  t=-1.47
