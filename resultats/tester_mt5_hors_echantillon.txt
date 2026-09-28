@@ -1,0 +1,39 @@
+Simulateur MT5 — HORS ECHANTILLON — XAUUSD M15 — 2026.05.01 -> 2026.09.26
+Configuration identique au test in-sample : BiasMode=CASSURE 1xATR,
+SL 200 / TP1 300, MinRR 1.5, MaxPositions 1, Lots 0.1, EntryMode LES_DEUX.
+Qualite de l'historique : 100%.
+
+in-sample 2024.01-2026.04 : +11599 pips (+57.8 R)  45.5% reussite
+hors ech. 2026.05-2026.09 :   -780 pips ( -3.9 R)  38.7% reussite
+or sur la fenetre hors echantillon : 4626.72 -> 4278.26 (-3485 pips)
+
+trades cloturees : 111
+gagnantes 43 (38.7%)  perdantes 68
+total -780.0 pips   moyenne -7.03 pips/trade
+gain moyen +299.4   perte moyenne -200.8
+profit factor 0.943   (seuil rentabilite = 40.0% de reussite)
+1 R mesure = 200.8 pips -> resultat = -3.9 R  (-0.0350 R/trade)
+drawdown max 2277 pips (11.3 R)   equity finale -780 pips
+
+-- par annee --
+2026:  111 trades   38.7% reussite       -780 pips  (  -3.9 R)
+
+-- par sens --
+buy :   50 trades   34.0% reussite      -1580 pips
+sell:   61 trades   42.6% reussite       +800 pips
+
+duree mediane 3.5 h   moyenne 4.6 h
+
+ENSEMBLE               n= 111  -0.0350 R/trade  IC95 [-0.262 ; +0.192]  t=-0.30
+H4 aligne              n=  98  +0.0426 R/trade  IC95 [-0.202 ; +0.287]  t=+0.34
+H4 contre              n=  13  -0.6203 R/trade  IC95 [-1.129 ; -0.112]  t=-2.39
+annee 2026             n= 111  -0.0350 R/trade  IC95 [-0.262 ; +0.192]  t=-0.30
+mode AMD               n=  22  +0.0165 R/trade  IC95 [-0.508 ; +0.541]  t=+0.06
+mode BIAIS             n=  89  -0.0478 R/trade  IC95 [-0.301 ; +0.205]  t=-0.37
+
+=== controle hors echantillon — 121 signaux, 2026-05-01 -> 2026-09-25 ===
+    LONG 58  SHORT 63
+    direction reelle      -2700 pips  -0.1116 R/trade  t=-1.02  (35.5% reussite)
+    tout en ACHAT         -2700 pips  -0.1116 R/trade  t=-1.02  (35.5% reussite)
+    tout en VENTE         +2300 pips  +0.0950 R/trade  t=+0.84  (43.8% reussite)
+    direction au hasard     -312 pips en moyenne (de -7200 a +5800)
