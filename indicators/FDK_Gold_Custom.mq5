@@ -32,7 +32,7 @@ input int    StructureLookback = 20;    // Barres utilisées pour détecter la s
 input int    SwingDepth        = 3;     // Profondeur de détection des swing highs/lows
 input FDK_BiasMode BiasMode    = FDK_BIAIS_CASSURE; // Méthode de lecture du biais
 input double BiasDisplacementATR = 1.0;  // Déplacement exigé au-delà du niveau cassé
-input int    BiasBarsBack        = 300;  // Historique parcouru (cassure la plus ancienne mesurée : 141 bougies)
+input int    BiasBarsBack        = 200;  // Historique parcouru (cassure la plus ancienne mesurée : 141 bougies)
 
 input group "=== Indicateurs ==="
 input int    RSIPeriod = 14;
@@ -669,10 +669,41 @@ void DrawHLine(string name, double price, color clr, string text)
 // Returns 1 = bullish, -1 = bearish, 0 = neutre/indéterminé
 // startShift = 0 evaluates the bias now; a positive shift evaluates it as of
 // that bar, which is what the per-day chart labels need.
+#define BIAS_MEMO 32
+datetime gBiasMemoBar = 0;
+int      gBiasMemoTf[BIAS_MEMO];
+int      gBiasMemoShift[BIAS_MEMO];
+int      gBiasMemoVal[BIAS_MEMO];
+int      gBiasMemoN = 0;
+
 int ComputeBias(ENUM_TIMEFRAMES tf, int startShift = 0)
   {
-   return(FDK_BiasOf(BiasMode, _Symbol, tf, StructureLookback, SwingDepth,
-                     BiasDisplacementATR, BiasBarsBack, startShift));
+   // Les etiquettes journalieres redemandent le meme biais pour les memes
+   // journees a chaque redessin, et un redessin part aussi au moindre
+   // defilement du graphique. Tant que le detecteur lisait 28 barres, le
+   // gaspillage passait inapercu ; a 300 barres sur deux unites de temps,
+   // vingt fois par passe, il fige la bougie en cours. Le resultat ne
+   // change pas a l'interieur d'une bougie : on le memorise.
+   datetime cur = iTime(_Symbol, PERIOD_CURRENT, 0);
+   if(cur != gBiasMemoBar)
+     {
+      gBiasMemoBar = cur;
+      gBiasMemoN   = 0;
+     }
+   for(int i = 0; i < gBiasMemoN; i++)
+      if(gBiasMemoTf[i] == (int)tf && gBiasMemoShift[i] == startShift)
+         return(gBiasMemoVal[i]);
+
+   int v = FDK_BiasOf(BiasMode, _Symbol, tf, StructureLookback, SwingDepth,
+                      BiasDisplacementATR, BiasBarsBack, startShift);
+   if(gBiasMemoN < BIAS_MEMO)
+     {
+      gBiasMemoTf[gBiasMemoN]    = (int)tf;
+      gBiasMemoShift[gBiasMemoN] = startShift;
+      gBiasMemoVal[gBiasMemoN]   = v;
+      gBiasMemoN++;
+     }
+   return(v);
   }
 
 //+------------------------------------------------------------------+

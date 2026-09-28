@@ -45,7 +45,7 @@ input int    StructureLookback = 20;
 input int    SwingDepth        = 3;
 input FDK_BiasMode BiasMode    = FDK_BIAIS_CASSURE;
 input double BiasDisplacementATR = 1.0;  // Déplacement exigé au-delà du niveau
-input int    BiasBarsBack        = 300;  // Historique parcouru (cassure la plus ancienne mesurée : 141 bougies)
+input int    BiasBarsBack        = 200;  // Historique parcouru (cassure la plus ancienne mesurée : 141 bougies)
 
 input group "=== Niveaux SL / TP ==="
 input int    LevelsLookback = 150;

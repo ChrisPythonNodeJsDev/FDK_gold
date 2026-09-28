@@ -136,9 +136,21 @@ int FDK_BiasBOS(const string sym, const ENUM_TIMEFRAMES tf,
                 const int depth, const double dispAtr,
                 const int barsBack, int startShift = 0)
   {
+   if(startShift < 0)
+      startShift = 0;
+
+   // Ne jamais demander plus d'historique qu'il n'en existe. Une demande
+   // au-delà du disponible déclenche un téléchargement asynchrone, et
+   // l'appel échoue à chaque tick tant qu'il n'a pas abouti : le graphique
+   // se fige alors, la bougie en cours ne se dessine plus. L'ancien
+   // détecteur ne lisait que 28 barres et ne rencontrait jamais le cas.
+   int mini = depth * 4 + 30;
+   int avail = Bars(sym, tf) - startShift;
+   if(avail < mini)
+      return(0);
    int n = barsBack;
-   if(n < depth * 4 + 30) n = depth * 4 + 30;
-   if(startShift < 0) startShift = 0;
+   if(n > avail) n = avail;
+   if(n < mini)  n = mini;
 
    double h[], l[], c[];
    if(CopyHigh (sym, tf, startShift, n, h) < n) return(0);
