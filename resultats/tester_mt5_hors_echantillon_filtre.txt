@@ -1,0 +1,43 @@
+Simulateur MT5 — HORS ECHANTILLON avec ForbidH4Contre — 2026.05.01 -> 2026.09.26
+qualite historique 100%, configuration identique au run en echantillon
+
+sans filtre : -780 pips (-3.9 R)  38.7%  PF 0.943
+avec filtre : +436 pips (+2.2 R)  41.0%  PF 1.035
+(estimation annoncee avant le test : +838 pips)
+
+trades cloturees : 105
+gagnantes 43 (41.0%)  perdantes 62
+total +436.0 pips   moyenne +4.15 pips/trade
+gain moyen +299.4   perte moyenne -200.6
+profit factor 1.035   (seuil rentabilite = 40.0% de reussite)
+1 R mesure = 200.6 pips -> resultat = +2.2 R  (+0.0207 R/trade)
+drawdown max 1408 pips (7.0 R)   equity finale +436 pips
+
+-- par annee --
+2026:  105 trades   41.0% reussite       +436 pips  (  +2.2 R)
+
+-- par sens --
+buy :   40 trades   40.0% reussite        -64 pips
+sell:   65 trades   41.5% reussite       +500 pips
+
+duree mediane 3.3 h   moyenne 4.2 h
+
+signaux EA 111   AUTORISE indicateur 99   ordres traces 105   resultats 105
+signaux non executes : 6 soit 5%
+
+-- resultat par mode d'entree (trades reellement pris) --
+BIAIS       :   95 trades   36.8% reussite      -1554 pips  (  -7.7 R)  moy  -16.36
+AMD         :    5 trades  100.0% reussite      +1494 pips  (  +7.4 R)  moy +298.72
+AMD+BIAIS   :    5 trades   60.0% reussite       +497 pips  (  +2.5 R)  moy  +99.36
+
+-- selon H4 --
+H4 aligne   :  105 trades   41.0% reussite       +436 pips  moy   +4.15
+
+jours avec signaux LONG ET SHORT : 4 / 91 jours (4%)
+jours ou AMD et BIAIS coexistent : 1, dont directions totalement opposees : 1
+
+ENSEMBLE               n= 105  +0.0207 R/trade  IC95 [-0.215 ; +0.256]  t=+0.17
+H4 aligne              n= 105  +0.0207 R/trade  IC95 [-0.215 ; +0.256]  t=+0.17
+annee 2026             n= 105  +0.0207 R/trade  IC95 [-0.215 ; +0.256]  t=+0.17
+mode AMD               n=  10  +0.9922 R/trade  IC95 [+0.341 ; +1.643]  t=+2.99
+mode BIAIS             n=  95  -0.0816 R/trade  IC95 [-0.325 ; +0.162]  t=-0.66
