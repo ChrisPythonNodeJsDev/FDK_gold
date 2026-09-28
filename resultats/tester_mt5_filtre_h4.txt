@@ -1,0 +1,50 @@
+Simulateur MT5 — EN ECHANTILLON avec ForbidH4Contre — 2024.01.01 -> 2026.04.30
+Seule difference avec le run precedent : ForbidH4Contre=true
+
+fractales                     : -8278 pips  (-41.3 R)  37.1%
+cassure                       : +11599 pips (+57.8 R)  45.5%
+cassure + ForbidH4Contre      : +14203 pips (+70.8 R)  46.9%
+
+ATTENTION : periode sur laquelle le filtre a ete identifie.
+La seule mesure informative reste 2026.05.01 -> 2026.09.26.
+
+trades cloturees : 420
+gagnantes 197 (46.9%)  perdantes 223
+total +14202.9 pips   moyenne +33.82 pips/trade
+gain moyen +299.2   perte moyenne -200.6
+profit factor 1.317   (seuil rentabilite = 40.0% de reussite)
+1 R mesure = 200.6 pips -> resultat = +70.8 R  (+0.1686 R/trade)
+drawdown max 2238 pips (11.2 R)   equity finale +14203 pips
+
+-- par annee --
+2024:  133 trades   44.4% reussite      +2819 pips  ( +14.1 R)
+2025:  200 trades   51.0% reussite     +10842 pips  ( +54.0 R)
+2026:   87 trades   41.4% reussite       +542 pips  (  +2.7 R)
+
+-- par sens --
+buy :  255 trades   54.1% reussite     +17703 pips
+sell:  165 trades   35.8% reussite      -3500 pips
+
+duree mediane 8.3 h   moyenne 24.7 h
+
+signaux EA 701   AUTORISE indicateur 700   ordres traces 420   resultats 420
+signaux non executes : 281 soit 40%
+
+-- resultat par mode d'entree (trades reellement pris) --
+BIAIS       :  373 trades   46.1% reussite     +11140 pips  ( +55.5 R)  moy  +29.87
+AMD         :   28 trades   50.0% reussite      +1378 pips  (  +6.9 R)  moy  +49.20
+AMD+BIAIS   :   19 trades   57.9% reussite      +1685 pips  (  +8.4 R)  moy  +88.67
+
+-- selon H4 --
+H4 aligne   :  420 trades   46.9% reussite     +14203 pips  moy  +33.82
+
+jours avec signaux LONG ET SHORT : 30 / 546 jours (5%)
+jours ou AMD et BIAIS coexistent : 28, dont directions totalement opposees : 15
+
+ENSEMBLE               n= 420  +0.1686 R/trade  IC95 [+0.050 ; +0.288]  t=+2.78
+H4 aligne              n= 420  +0.1686 R/trade  IC95 [+0.050 ; +0.288]  t=+2.78
+annee 2024             n= 134  +0.1160 R/trade  IC95 [-0.095 ; +0.327]  t=+1.08
+annee 2025             n= 199  +0.2641 R/trade  IC95 [+0.091 ; +0.438]  t=+2.98
+annee 2026             n=  87  +0.0311 R/trade  IC95 [-0.228 ; +0.290]  t=+0.23
+mode AMD               n=  47  +0.3248 R/trade  IC95 [-0.034 ; +0.684]  t=+1.77
+mode BIAIS             n= 373  +0.1489 R/trade  IC95 [+0.023 ; +0.275]  t=+2.31
