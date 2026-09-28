@@ -67,8 +67,8 @@ input group "=== Exécution ==="
 // la fenetre 2025-06 / 2026-04 sans limite, 8 positions ont coexisté au plus
 // fort, 4 ou moins 95 % du temps : le lot doit etre divise d'autant si le
 // risque par evenement doit rester constant.
-input int    MaxPositions = 1;    // Positions simultanees autorisees
-input double Lots        = 0.10;
+input int    MaxPositions = 5;    // Positions simultanees autorisees
+input double Lots        = 0.02;
 input long   MagicNumber = 20260927;
 
 //--- Purement visuel. L'EA décide via FDK_Common.mqh ; charger l'indicateur

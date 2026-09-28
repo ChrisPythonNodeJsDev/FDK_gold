@@ -1,0 +1,66 @@
+Simulateur MT5 — FDK_Gold_EA — XAUUSD M15 — 2024.01.01 -> 2026.04.30
+SEULE DIFFERENCE avec le test precedent : BiasMode=CASSURE (1 x ATR)
+Tout le reste identique : SL 200 / TP1 300, MinRR 1.5, MaxPositions 1,
+Lots 0.1, EntryMode LES_DEUX, AllowNeutralH4 true, TradeAsia false.
+
+precedent (fractales) : -8278 pips  (-41.3 R)  37.1% reussite
+nouveau  (cassure)    : +11599 pips (+57.8 R)  45.5% reussite
+
+trades cloturees : 433
+gagnantes 197 (45.5%)  perdantes 236
+total +11598.6 pips   moyenne +26.79 pips/trade
+gain moyen +299.2   perte moyenne -200.6
+profit factor 1.245   (seuil rentabilite = 40.0% de reussite)
+1 R mesure = 200.6 pips -> resultat = +57.8 R  (+0.1335 R/trade)
+drawdown max 3446 pips (17.2 R)   equity finale +11599 pips
+
+-- par annee --
+2024:  131 trades   42.7% reussite      +1724 pips  (  +8.6 R)
+2025:  207 trades   50.7% reussite     +10940 pips  ( +54.5 R)
+2026:   95 trades   37.9% reussite      -1065 pips  (  -5.3 R)
+
+-- par sens --
+buy :  255 trades   52.5% reussite     +15699 pips
+sell:  178 trades   35.4% reussite      -4100 pips
+
+duree mediane 7.5 h   moyenne 23.6 h
+
+signaux EA 762   AUTORISE indicateur 762   ordres traces 433   resultats 433
+signaux non executes : 329 soit 43%
+
+-- resultat par mode d'entree (trades reellement pris) --
+BIAIS       :  356 trades   46.9% reussite     +12049 pips  ( +60.1 R)  moy  +33.85
+AMD         :   56 trades   39.3% reussite       -234 pips  (  -1.2 R)  moy   -4.18
+AMD+BIAIS   :   21 trades   38.1% reussite       -217 pips  (  -1.1 R)  moy  -10.32
+
+-- selon H4 --
+H4 aligne   :  396 trades   47.5% reussite     +14517 pips  moy  +36.66
+H4 contre   :   37 trades   24.3% reussite      -2918 pips  moy  -78.88
+
+jours avec signaux LONG ET SHORT : 127 / 552 jours (23%)
+jours ou AMD et BIAIS coexistent : 126, dont directions totalement opposees : 114
+
+ENSEMBLE               n= 433  +0.1335 R/trade  IC95 [+0.017 ; +0.251]  t=+2.24
+H4 aligne              n= 396  +0.1827 R/trade  IC95 [+0.060 ; +0.305]  t=+2.92
+H4 contre              n=  37  -0.3932 R/trade  IC95 [-0.742 ; -0.044]  t=-2.21
+annee 2024             n= 132  +0.0764 R/trade  IC95 [-0.135 ; +0.288]  t=+0.71
+annee 2025             n= 206  +0.2575 R/trade  IC95 [+0.087 ; +0.428]  t=+2.96
+annee 2026             n=  95  -0.0559 R/trade  IC95 [-0.300 ; +0.189]  t=-0.45
+mode AMD               n=  77  -0.0292 R/trade  IC95 [-0.302 ; +0.244]  t=-0.21
+mode BIAIS             n= 356  +0.1687 R/trade  IC95 [+0.039 ; +0.298]  t=+2.56
+
+### CONTROLE : la direction choisie sert-elle a quelque chose ? ###
+
+=== ancien detecteur (fractales) — 572 signaux dans la fenetre M15 disponible ===
+    2025-06-19 -> 2026-04-29   LONG 319  SHORT 253
+    direction reelle      -1715 pips  -0.0150 R/trade  t=-0.29  (39.3% reussite)
+    tout en ACHAT         +9600 pips  +0.0839 R/trade  t=+1.62  (43.4% reussite)
+    tout en VENTE         -8715 pips  -0.0762 R/trade  t=-1.51  (36.9% reussite)
+    direction au hasard    +1296 pips en moyenne sur 40 tirages (de -6400 a +9785)
+
+=== nouveau (cassure + 1 ATR) — 267 signaux dans la fenetre M15 disponible ===
+    2025-06-20 -> 2026-04-29   LONG 146  SHORT 121
+    direction reelle      +4785 pips  +0.0896 R/trade  t=+1.18  (43.4% reussite)
+    tout en ACHAT         +7600 pips  +0.1423 R/trade  t=+1.86  (45.7% reussite)
+    tout en VENTE         -9999 pips  -0.1872 R/trade  t=-2.62  (32.6% reussite)
+    direction au hasard    -1143 pips en moyenne sur 40 tirages (de -9900 a +5501)
