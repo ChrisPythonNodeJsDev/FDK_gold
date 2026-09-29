@@ -173,10 +173,14 @@ void OnTick()
    BuildSessions(sess);
    string active = FDK_ActiveSession(FDK_SecOfDay(now), sess);
 
+   bool okM15 = true, okH4 = true;
    int biasM15 = FDK_BiasOf(BiasMode, _Symbol, PERIOD_M15, StructureLookback,
-                            SwingDepth, BiasDisplacementATR, BiasBarsBack);
+                            SwingDepth, BiasDisplacementATR, BiasBarsBack, okM15);
    int biasH4  = FDK_BiasOf(BiasMode, _Symbol, PERIOD_H4,  StructureLookback,
-                            SwingDepth, BiasDisplacementATR, BiasBarsBack);
+                            SwingDepth, BiasDisplacementATR, BiasBarsBack, okH4);
+   if(!okM15 || !okH4)
+      PrintFormat("FDK_EA: biais indisponible (M15 %s, H4 %s) — aucune entrée",
+                  okM15 ? "ok" : "absent", okH4 ? "ok" : "absent");
 
    // Séquence AMD du jour, évaluée exactement comme dans l'indicateur.
    datetime beninMidnight = now - (now % 86400) - off * 3600;
@@ -199,7 +203,7 @@ void OnTick()
 
    FDK_Decision dec;
    FDK_Decide(EntryMode, AllowNeutralH4, biasM15, biasH4, amd,
-              active != "", asiaBlocked, dec, ForbidH4Contre);
+              active != "", asiaBlocked, dec, ForbidH4Contre, okM15, okH4);
 
    bool allowed = dec.allowed;
    int  dir     = dec.dir;

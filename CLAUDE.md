@@ -86,7 +86,14 @@ WINEPREFIX=<prefixe_isole> wine MetaEditor64.exe \
 iconv -f UTF-16LE -t UTF-8 MQL5/Indicators/FDK_Gold_Custom.log
 ```
 
-Le log est en UTF-16. Toujours vérifier « 0 errors, 0 warnings ».
+Le log est en UTF-16. **Vérifier l'horodatage du `.ex5`, pas le texte du
+log** : quand MetaEditor ne démarre pas, l'ancien log reste en place et
+sa ligne « 0 errors » se relit comme un succès. Le 29/09 le préfixe isolé
+était corrompu (`could not load kernel32.dll`) et deux compilations ont
+été annoncées réussies alors qu'aucune n'avait eu lieu.
+
+Wine est désormais en 11.18 des deux côtés : le préfixe isolé n'est plus
+nécessaire, `WINEPREFIX=$HOME/.mt5` fonctionne pendant que MT5 tourne.
 
 ## Pièges de l'environnement
 

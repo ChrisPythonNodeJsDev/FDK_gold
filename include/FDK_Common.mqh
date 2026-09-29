@@ -76,15 +76,16 @@ string FDK_ActiveSession(const int secOfDay, const FDK_Session &sessions[])
 //| startShift > 0 évalue le biais tel qu'il était à cette barre.     |
 //+------------------------------------------------------------------+
 int FDK_Bias(const string sym, const ENUM_TIMEFRAMES tf,
-             const int lookback, const int depth, int startShift = 0)
+             const int lookback, const int depth, bool &valid, int startShift = 0)
   {
+   valid = true;
    int bars = lookback + depth * 2 + 2;
    if(startShift < 0)
       startShift = 0;
 
    double highs[], lows[];
-   if(CopyHigh(sym, tf, startShift, bars, highs) < bars) return(0);
-   if(CopyLow (sym, tf, startShift, bars, lows)  < bars) return(0);
+   if(CopyHigh(sym, tf, startShift, bars, highs) < bars) { valid = false; return(0); }
+   if(CopyLow (sym, tf, startShift, bars, lows)  < bars) { valid = false; return(0); }
    ArraySetAsSeries(highs, true);
    ArraySetAsSeries(lows,  true);
 
@@ -134,8 +135,9 @@ int FDK_Bias(const string sym, const ENUM_TIMEFRAMES tf,
 //+------------------------------------------------------------------+
 int FDK_BiasBOS(const string sym, const ENUM_TIMEFRAMES tf,
                 const int depth, const double dispAtr,
-                const int barsBack, int startShift = 0)
+                const int barsBack, bool &valid, int startShift = 0)
   {
+   valid = true;
    if(startShift < 0)
       startShift = 0;
 
@@ -147,15 +149,23 @@ int FDK_BiasBOS(const string sym, const ENUM_TIMEFRAMES tf,
    int mini = depth * 4 + 30;
    int avail = Bars(sym, tf) - startShift;
    if(avail < mini)
+     {
+      // Historique absent : ce n'est PAS un biais neutre, c'est une absence
+      // de réponse. Les confondre a autorisé un achat le 29/09 à 11h05,
+      // quatre secondes après un rechargement de l'indicateur, alors que le
+      // H4 était baissier. « Je ne sais pas » ne doit jamais valoir « rien
+      // ne s'y oppose ».
+      valid = false;
       return(0);
+     }
    int n = barsBack;
    if(n > avail) n = avail;
    if(n < mini)  n = mini;
 
    double h[], l[], c[];
-   if(CopyHigh (sym, tf, startShift, n, h) < n) return(0);
-   if(CopyLow  (sym, tf, startShift, n, l) < n) return(0);
-   if(CopyClose(sym, tf, startShift, n, c) < n) return(0);
+   if(CopyHigh (sym, tf, startShift, n, h) < n) { valid = false; return(0); }
+   if(CopyLow  (sym, tf, startShift, n, l) < n) { valid = false; return(0); }
+   if(CopyClose(sym, tf, startShift, n, c) < n) { valid = false; return(0); }
    ArraySetAsSeries(h, true);
    ArraySetAsSeries(l, true);
    ArraySetAsSeries(c, true);
@@ -212,11 +222,12 @@ enum FDK_BiasMode
 //+------------------------------------------------------------------+
 int FDK_BiasOf(const FDK_BiasMode mode, const string sym,
                const ENUM_TIMEFRAMES tf, const int lookback, const int depth,
-               const double dispAtr, const int barsBack, int startShift = 0)
+               const double dispAtr, const int barsBack, bool &valid,
+               int startShift = 0)
   {
    if(mode == FDK_BIAIS_CASSURE)
-      return(FDK_BiasBOS(sym, tf, depth, dispAtr, barsBack, startShift));
-   return(FDK_Bias(sym, tf, lookback, depth, startShift));
+      return(FDK_BiasBOS(sym, tf, depth, dispAtr, barsBack, valid, startShift));
+   return(FDK_Bias(sym, tf, lookback, depth, valid, startShift));
   }
 
 //+------------------------------------------------------------------+
@@ -351,6 +362,7 @@ struct FDK_Decision
    bool aligned;
    bool h4Neutral;
    bool h4Contre;      // AMD pointe à l'opposé du biais H4
+   bool biaisInconnu;  // une des deux unités de temps n'a pas répondu
    int  dir;
   };
 
@@ -443,8 +455,10 @@ void FDK_Decide(const FDK_EntryMode mode, const bool allowNeutralH4,
                 const int biasM15, const int biasH4,
                 const FDK_Amd &amd,
                 const bool sessionActive, const bool asiaBlocked,
-                FDK_Decision &d, const bool forbidH4Contre = true)
+                FDK_Decision &d, const bool forbidH4Contre = true,
+                const bool biasKnownM15 = true, const bool biasKnownH4 = true)
   {
+   d.biaisInconnu = (!biasKnownM15 || !biasKnownH4);
    d.h4Neutral  = (biasH4 == 0);
    d.aligned    = (biasM15 != 0
                    && (biasM15 == biasH4 || (allowNeutralH4 && d.h4Neutral)));
@@ -467,6 +481,15 @@ void FDK_Decide(const FDK_EntryMode mode, const bool allowNeutralH4,
    if(mode == FDK_ENTRY_BIAIS)       d.allowed = d.biasSignal;
    else if(mode == FDK_ENTRY_AMD)    d.allowed = d.amdSignal;
    else                              d.allowed = (d.biasSignal || d.amdSignal);
+
+   // Tant qu'une unité de temps n'a pas répondu, aucune entrée : le filtre
+   // H4 ne peut pas faire son travail sur une valeur qui n'existe pas.
+   if(d.biaisInconnu)
+     {
+      d.biasSignal = false;
+      d.amdSignal  = false;
+      d.allowed    = false;
+     }
 
    d.dir = d.amdSignal ? amd.dir : ((biasM15 != 0) ? biasM15 : biasH4);
   }

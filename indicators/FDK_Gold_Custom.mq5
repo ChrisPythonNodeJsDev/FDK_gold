@@ -195,6 +195,8 @@ int      gCtxSwQuick   = 0, gCtxSwCumul = 0;
 double   gCtxRangeHi   = 0.0, gCtxRangeLo = 0.0;
 double   gCtxSL        = 0.0, gCtxTP1 = 0.0, gCtxTP2 = 0.0;
 bool     gCtxValid     = false;   // tampons indicateurs prets ?
+bool     gCtxOkM15     = true;   // le biais M15 a-t-il pu etre lu ?
+bool     gCtxOkH4      = true;   // idem H4
 
 //--- Etat AMD du jour : cote balaye, extreme de l'excursion, niveau dont la
 //--- cassure confirme le retournement, et direction de la distribution.
@@ -671,6 +673,7 @@ void DrawHLine(string name, double price, color clr, string text)
 // startShift = 0 evaluates the bias now; a positive shift evaluates it as of
 // that bar, which is what the per-day chart labels need.
 #define BIAS_MEMO 32
+bool     gBiasOk = true;      // la derniere lecture a-t-elle abouti ?
 datetime gBiasMemoBar = 0;
 int      gBiasMemoTf[BIAS_MEMO];
 int      gBiasMemoShift[BIAS_MEMO];
@@ -693,10 +696,19 @@ int ComputeBias(ENUM_TIMEFRAMES tf, int startShift = 0)
      }
    for(int i = 0; i < gBiasMemoN; i++)
       if(gBiasMemoTf[i] == (int)tf && gBiasMemoShift[i] == startShift)
+        {
+         gBiasOk = true;
          return(gBiasMemoVal[i]);
+        }
 
+   bool ok = true;
    int v = FDK_BiasOf(BiasMode, _Symbol, tf, StructureLookback, SwingDepth,
-                      BiasDisplacementATR, BiasBarsBack, startShift);
+                      BiasDisplacementATR, BiasBarsBack, ok, startShift);
+   gBiasOk = ok;
+   // Un echec de lecture ne se memorise pas : l'historique arrive souvent
+   // une seconde plus tard, et cacher le zero le figerait pour la bougie.
+   if(!ok)
+      return(0);
    if(gBiasMemoN < BIAS_MEMO)
      {
       gBiasMemoTf[gBiasMemoN]    = (int)tf;
@@ -1531,7 +1543,9 @@ void RefreshContext()
    gCtxATR = okATR ? atrBuf[0] : 0.0;
 
    gCtxBiasM15 = ComputeBias(PERIOD_M15);
+   gCtxOkM15   = gBiasOk;
    gCtxBiasH4  = ComputeBias(PERIOD_H4);
+   gCtxOkH4    = gBiasOk;
 
    double price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    datetime dayStart = BeninDayStart();
@@ -1607,7 +1621,8 @@ void UpdatePanel()
 
    FDK_Decision dec;
    FDK_Decide(EntryMode, AllowNeutralH4, biasM15, biasH4, amd,
-              sessionActive, asiaBlocked, dec, ForbidH4Contre);
+              sessionActive, asiaBlocked, dec, ForbidH4Contre,
+              gCtxOkM15, gCtxOkH4);
 
    bool h4Neutral    = dec.h4Neutral;
    bool aligned      = dec.aligned;
@@ -1697,8 +1712,10 @@ void UpdatePanel()
    SetPanelLine(line++, "Session: " + (sessionActive ? activeSession : "aucune"), sessionActive ? clrYellow : clrSilver);
    SetPanelLine(line++, StringFormat("Range H:%s L:%s", DoubleToString(rangeHi, digits), DoubleToString(rangeLo, digits)), clrSilver);
    SetPanelLine(line++, " ", clrSilver);
-   SetPanelLine(line++, "Biais M15: " + BiasText(biasM15), BiasColor(biasM15));
-   SetPanelLine(line++, "Biais H4:  " + BiasText(biasH4), BiasColor(biasH4));
+   SetPanelLine(line++, "Biais M15: " + (gCtxOkM15 ? BiasText(biasM15) : "INDISPONIBLE"),
+                gCtxOkM15 ? BiasColor(biasM15) : clrTomato);
+   SetPanelLine(line++, "Biais H4:  " + (gCtxOkH4 ? BiasText(biasH4) : "INDISPONIBLE"),
+                gCtxOkH4 ? BiasColor(biasH4) : clrTomato);
    // ATR affiche aussi en pips : c'est l'unite utilisee dans les analyses
    // publiees, ca evite une conversion mentale a chaque comparaison.
    SetPanelLine(line++, StringFormat("RSI(%d): %.1f  ATR: %s (%d p)",
@@ -1833,7 +1850,9 @@ void UpdatePanel()
 
    // Le H4 neutre n'interdit plus rien, mais il doit se voir : c'est une
    // confirmation en moins, pas un detail.
-   if(aligned && !h4Neutral)
+   if(dec.biaisInconnu)
+      SetCommentLine(cl++, " NON Biais indisponible : historique absent", clrTomato);
+   else if(aligned && !h4Neutral)
       SetCommentLine(cl++, " OK  Biais M15 et H4 alignes (" + BiasText(biasM15) + ")", clrLightGreen);
    else if(aligned && h4Neutral)
       SetCommentLine(cl++, " ~   Biais M15 " + BiasText(biasM15) + ", H4 NEUTRE", clrOrange);
