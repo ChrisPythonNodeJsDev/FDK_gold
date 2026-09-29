@@ -141,29 +141,33 @@ int FDK_BiasBOS(const string sym, const ENUM_TIMEFRAMES tf,
    if(startShift < 0)
       startShift = 0;
 
-   // Ne jamais demander plus d'historique qu'il n'en existe. Une demande
-   // au-delà du disponible déclenche un téléchargement asynchrone, et
-   // l'appel échoue à chaque tick tant qu'il n'a pas abouti : le graphique
-   // se fige alors, la bougie en cours ne se dessine plus. L'ancien
-   // détecteur ne lisait que 28 barres et ne rencontrait jamais le cas.
+   // On demande, et on se contente de ce qui revient.
+   //
+   // Interroger Bars() d'abord ne marche pas : tant qu'aucun graphique n'a
+   // ouvert cette unité de temps, la série n'est pas construite et Bars()
+   // renvoie une valeur trop faible — or c'est précisément CopyHigh qui
+   // déclenche sa construction. Le garde-fou précédent sortait donc avant
+   // d'avoir rien demandé, et le H4 restait indisponible indéfiniment sur
+   // un terminal qui n'affiche qu'un graphique M15.
+   //
+   // Une lecture partielle reste exploitable : la cassure en cours remonte
+   // au plus à 141 bougies (mesuré), et `mini` garantit de quoi confirmer
+   // au moins une fractale.
    int mini = depth * 4 + 30;
-   int avail = Bars(sym, tf) - startShift;
-   if(avail < mini)
+   int n = barsBack;
+   if(n < mini) n = mini;
+
+   double h[], l[], c[];
+   int got = CopyHigh(sym, tf, startShift, n, h);
+   if(got < mini)
      {
       // Historique absent : ce n'est PAS un biais neutre, c'est une absence
-      // de réponse. Les confondre a autorisé un achat le 29/09 à 11h05,
-      // quatre secondes après un rechargement de l'indicateur, alors que le
-      // H4 était baissier. « Je ne sais pas » ne doit jamais valoir « rien
-      // ne s'y oppose ».
+      // de réponse. Les confondre a autorisé un achat le 29/09 à 11h05.
+      // « Je ne sais pas » ne doit jamais valoir « rien ne s'y oppose ».
       valid = false;
       return(0);
      }
-   int n = barsBack;
-   if(n > avail) n = avail;
-   if(n < mini)  n = mini;
-
-   double h[], l[], c[];
-   if(CopyHigh (sym, tf, startShift, n, h) < n) { valid = false; return(0); }
+   n = got;
    if(CopyLow  (sym, tf, startShift, n, l) < n) { valid = false; return(0); }
    if(CopyClose(sym, tf, startShift, n, c) < n) { valid = false; return(0); }
    ArraySetAsSeries(h, true);

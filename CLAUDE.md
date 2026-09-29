@@ -97,6 +97,19 @@ nécessaire, `WINEPREFIX=$HOME/.mt5` fonctionne pendant que MT5 tourne.
 
 ## Pièges de l'environnement
 
+- `Bars(sym, tf)` ne suffit pas à savoir si une unité de temps est lisible :
+  tant qu'aucun graphique ne l'a ouverte, la série n'est pas construite et
+  le compte est trop faible. C'est `CopyHigh` qui déclenche la
+  construction. Tester `Bars()` **avant** de copier condamne l'unité de
+  temps à rester indisponible — le 29/09 le biais H4 est resté absent
+  toute la journée sur un terminal n'affichant qu'un graphique M15, alors
+  que `Bases/Deriv-Demo/history/XAUUSD/` contenait tout l'historique.
+  Demander, puis accepter ce qui revient.
+- Une lecture qui échoue ne doit être ni mise en cache pour la bougie
+  entière, ni retentée à chaque appel : les étiquettes journalières
+  relancent une vingtaine de lectures par redessin, ce qui a valu un
+  `indicator is too slow, 2840 ms`. Un repos d'une seconde entre deux
+  tentatives.
 - MT5 interrompt un indicateur trop lent (`indicator is too slow`) et le
   graphique se fige : rien qui lise des barres ne doit tourner à chaque
   tick. Le contexte est mis en cache une fois par bougie dans

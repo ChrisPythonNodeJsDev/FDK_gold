@@ -674,6 +674,7 @@ void DrawHLine(string name, double price, color clr, string text)
 // that bar, which is what the per-day chart labels need.
 #define BIAS_MEMO 32
 bool     gBiasOk = true;      // la derniere lecture a-t-elle abouti ?
+uint     gBiasFailMs = 0;     // date du dernier echec, pour ne pas s'acharner
 datetime gBiasMemoBar = 0;
 int      gBiasMemoTf[BIAS_MEMO];
 int      gBiasMemoShift[BIAS_MEMO];
@@ -694,6 +695,14 @@ int ComputeBias(ENUM_TIMEFRAMES tf, int startShift = 0)
       gBiasMemoBar = cur;
       gBiasMemoN   = 0;
      }
+
+   uint maintenant = GetTickCount();
+   if(gBiasFailMs > 0 && maintenant >= gBiasFailMs
+      && maintenant - gBiasFailMs < 1000)
+     {
+      gBiasOk = false;
+      return(0);
+     }
    for(int i = 0; i < gBiasMemoN; i++)
       if(gBiasMemoTf[i] == (int)tf && gBiasMemoShift[i] == startShift)
         {
@@ -705,10 +714,17 @@ int ComputeBias(ENUM_TIMEFRAMES tf, int startShift = 0)
    int v = FDK_BiasOf(BiasMode, _Symbol, tf, StructureLookback, SwingDepth,
                       BiasDisplacementATR, BiasBarsBack, ok, startShift);
    gBiasOk = ok;
-   // Un echec de lecture ne se memorise pas : l'historique arrive souvent
-   // une seconde plus tard, et cacher le zero le figerait pour la bougie.
+   // Un echec ne se memorise pas pour la bougie entiere — l'historique
+   // arrive souvent une seconde plus tard. Mais il ne doit pas non plus
+   // etre retente vingt fois par redessin : le 29/09 a 11h56, MT5 a
+   // declare l'indicateur trop lent (2840 ms) parce que les etiquettes
+   // journalieres relancaient sans cesse une lecture H4 qui echouait.
+   // Une seconde de repos entre deux tentatives suffit.
    if(!ok)
+     {
+      gBiasFailMs = GetTickCount();
       return(0);
+     }
    if(gBiasMemoN < BIAS_MEMO)
      {
       gBiasMemoTf[gBiasMemoN]    = (int)tf;
