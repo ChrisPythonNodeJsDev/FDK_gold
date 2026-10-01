@@ -54,10 +54,41 @@ bool ExportTF(ENUM_TIMEFRAMES tf, int count, string label)
   }
 
 //+------------------------------------------------------------------+
+// La fiche du symbole part dans son propre fichier : sans elle, impossible
+// de savoir ce que vaut un pip sur un indice synthetique, ni quel lot
+// minimum l'EA peut envoyer. Sur XAUUSD on le savait, ailleurs non.
+void ExportSpec()
+  {
+   string fname = StringFormat("FDK_%s_spec%s.csv", _Symbol, Suffixe);
+   int h = FileOpen(fname, FILE_WRITE|FILE_CSV|FILE_ANSI, ',');
+   if(h == INVALID_HANDLE)
+     {
+      PrintFormat("FDK_Export: %s non creable (err %d)", fname, GetLastError());
+      return;
+     }
+   FileWrite(h, "champ", "valeur");
+   FileWrite(h, "symbole",        _Symbol);
+   FileWrite(h, "digits",         (string)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS));
+   FileWrite(h, "point",          DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_POINT), 8));
+   FileWrite(h, "taille_contrat", DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE), 4));
+   FileWrite(h, "tick_value",     DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE), 8));
+   FileWrite(h, "tick_size",      DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE), 8));
+   FileWrite(h, "volume_min",     DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN), 4));
+   FileWrite(h, "volume_max",     DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX), 4));
+   FileWrite(h, "volume_step",    DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP), 4));
+   FileWrite(h, "stops_level",    (string)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL));
+   FileWrite(h, "spread_points",  (string)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD));
+   FileWrite(h, "decalage_gmt_s", (string)(int)(TimeCurrent() - TimeGMT()));
+   FileClose(h);
+   PrintFormat("FDK_Export: fiche symbole -> %s", fname);
+  }
+
+//+------------------------------------------------------------------+
 void OnStart()
   {
    PrintFormat("FDK_Export: symbole %s, décalage serveur->GMT %d s",
                _Symbol, (int)(TimeCurrent() - TimeGMT()));
+   ExportSpec();
    bool a = ExportTF(PERIOD_M15, BarsM15, "M15");
    bool b = ExportTF(PERIOD_H4,  BarsH4,  "H4");
    if(a && b)
