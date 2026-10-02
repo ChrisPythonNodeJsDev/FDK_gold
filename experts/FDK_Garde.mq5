@@ -54,6 +54,16 @@ input group "=== Protection des positions ==="
 input bool   PoserStopManquant = true; // Attacher un SL aux positions qui n'en ont pas
 input long   MagicSurveille    = 0;    // 0 = toutes les positions du symbole
 
+//--- Alerter à l'expiration des deux minutes reviendrait à annoncer la
+//--- violation au lieu de l'éviter. L'alerte part donc dès que la
+//--- position est vue sans stop, et se répète jusqu'à ce qu'il y soit.
+input group "=== Alarmes ==="
+input bool   AlerteImmediate  = true;  // Alerter dès l'ouverture d'une position sans SL
+input bool   AlerteSonore     = true;  // Fenêtre Alert() + son
+input bool   AlertePush       = true;  // Notification sur le téléphone (MetaQuotes ID)
+input int    RappelSecondes   = 20;    // Intervalle entre deux rappels
+input int    SecondesCritique = 105;   // Dernière sommation avant les 120 s
+
 input group "=== Affichage et journal ==="
 input bool   AfficherPanneau = true;
 input string FichierJournal  = "";    // vide = FDK_garde_<symbole>.csv
@@ -78,6 +88,18 @@ bool     gBloque      = false;
 string   gMotif       = "";
 double   gMoyenneLots = 0.0;
 int      gNbLots      = 0;
+
+//--- Suivi des positions vues sans stop : une entrée par ticket, pour
+//--- savoir quand on l'a repérée et quand on a rappelé pour la dernière
+//--- fois. Le compte à rebours des 120 secondes part de l'OUVERTURE de la
+//--- position, pas du moment où on la découvre.
+#define MAX_SUIVI 16
+ulong    gSuiviTicket[MAX_SUIVI];
+datetime gSuiviDernier[MAX_SUIVI];
+bool     gSuiviCritique[MAX_SUIVI];
+bool     gSuiviViole[MAX_SUIVI];
+int      gSuiviN = 0;
+string   gCompteARebours = "";
 
 //--- Anti-répétition : un refus qui revient toutes les deux secondes
 //--- écrivait soixante lignes identiques par minute dans le journal.
@@ -332,6 +354,134 @@ void PoserStops()
   }
 
 //+------------------------------------------------------------------+
+void Crier(const string titre, const string corps, const bool fort)
+  {
+   string m = titre + " — " + corps;
+   if(AlerteSonore && fort)
+      Alert(m);                           // fenêtre + son, impossible à manquer
+   else if(AlerteSonore)
+      PlaySound("alert.wav");
+   if(AlertePush && TerminalInfoInteger(TERMINAL_NOTIFICATIONS_ENABLED))
+      SendNotification(_Symbol + " : " + m);
+   Print("FDK_Garde: ", m);
+  }
+
+//+------------------------------------------------------------------+
+int IndexSuivi(const ulong ticket)
+  {
+   for(int i = 0; i < gSuiviN; i++)
+      if(gSuiviTicket[i] == ticket) return(i);
+   if(gSuiviN >= MAX_SUIVI) return(-1);
+   gSuiviTicket[gSuiviN]   = ticket;
+   gSuiviDernier[gSuiviN]  = 0;
+   gSuiviCritique[gSuiviN] = false;
+   gSuiviViole[gSuiviN]    = false;
+   gSuiviN++;
+   return(gSuiviN - 1);
+  }
+
+//+------------------------------------------------------------------+
+void OublierSuivi(const ulong ticket)
+  {
+   for(int i = 0; i < gSuiviN; i++)
+      if(gSuiviTicket[i] == ticket)
+        {
+         for(int j = i; j < gSuiviN - 1; j++)
+           {
+            gSuiviTicket[j]   = gSuiviTicket[j+1];
+            gSuiviDernier[j]  = gSuiviDernier[j+1];
+            gSuiviCritique[j] = gSuiviCritique[j+1];
+            gSuiviViole[j]    = gSuiviViole[j+1];
+           }
+         gSuiviN--;
+         return;
+        }
+  }
+
+//+------------------------------------------------------------------+
+//| Règle 03 surveillée à la seconde. Le compte à rebours part de     |
+//| l'ouverture de la position : au moment où on la découvre, une     |
+//| partie des 120 secondes est déjà consommée.                       |
+//+------------------------------------------------------------------+
+void VeillerStops()
+  {
+   gCompteARebours = "";
+   int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+
+   // Oublier les tickets qui ne sont plus à découvert.
+   for(int i = gSuiviN - 1; i >= 0; i--)
+     {
+      ulong t = gSuiviTicket[i];
+      if(!PositionSelectByTicket(t) || PositionGetDouble(POSITION_SL) > 0.0)
+        {
+         if(PositionSelectByTicket(t))
+            Noter("STOP_CONSTATE", StringFormat("ticket %I64u protege", t));
+         OublierSuivi(t);
+        }
+     }
+
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong t = PositionGetTicket(i);
+      if(t == 0 || !Surveillee(t)) continue;
+      if(PositionGetDouble(POSITION_SL) > 0.0) continue;
+
+      double vol   = PositionGetDouble(POSITION_VOLUME);
+      double ecart = StopPourVolume(vol);
+      long   type  = PositionGetInteger(POSITION_TYPE);
+      double ouvre = PositionGetDouble(POSITION_PRICE_OPEN);
+      double sl = NormalizeDouble((type == POSITION_TYPE_BUY) ? ouvre - ecart
+                                                              : ouvre + ecart, digits);
+      long age     = (long)TimeCurrent() - (long)PositionGetInteger(POSITION_TIME);
+      long restant = DUREE_MIN_SECONDES - age;
+
+      int k = IndexSuivi(t);
+      if(k < 0) continue;
+      bool premier = (gSuiviDernier[k] == 0);
+
+      gCompteARebours = StringFormat("SANS STOP — %lds — SL %.*f", restant, digits, sl);
+
+      // Message unique, répété : il contient le prix à taper.
+      string corps = StringFormat("%.2f lot sans stop. Tape SL %.*f (%.2f USD). %lds restantes",
+                                  vol, digits, sl, RisqueDe(ecart, vol), restant);
+
+      if(premier && AlerteImmediate)
+        {
+         Crier("STOP MANQUANT", corps, true);
+         Noter("ALERTE_SANS_STOP",
+               StringFormat("ticket %I64u vol %.2f, SL a taper %.*f, %lds restantes",
+                            t, vol, digits, sl, restant));
+         gSuiviDernier[k] = TimeCurrent();
+         continue;
+        }
+
+      if(restant <= (DUREE_MIN_SECONDES - SecondesCritique) && !gSuiviCritique[k] && restant > 0)
+        {
+         gSuiviCritique[k] = true;
+         Crier("DERNIERE SOMMATION", corps, true);
+         gSuiviDernier[k] = TimeCurrent();
+         continue;
+        }
+
+      if(restant <= 0 && !gSuiviViole[k])
+        {
+         gSuiviViole[k] = true;
+         Crier("REGLE 03 VIOLEE", StringFormat("%.2f lot ouvert depuis %lds sans stop", vol, age), true);
+         Noter("VIOLATION_REGLE_03",
+               StringFormat("ticket %I64u sans stop a %lds — un cycle sur trois consomme", t, age));
+         gSuiviDernier[k] = TimeCurrent();
+         continue;
+        }
+
+      if(TimeCurrent() - gSuiviDernier[k] >= RappelSecondes)
+        {
+         Crier("stop toujours absent", corps, false);
+         gSuiviDernier[k] = TimeCurrent();
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
 void Ligne(const int idx, const string texte, const color clr)
   {
    string nom = PFX + IntegerToString(idx);
@@ -361,6 +511,8 @@ void Panneau()
    int l = 0;
 
    Ligne(l++, "GARDE-FOU  " + _Symbol, clrWhite);
+   if(gCompteARebours != "")
+      Ligne(l++, ">> " + gCompteARebours, clrRed);
    Ligne(l++, StringFormat("solde initial %10.2f", gSolde), clrSilver);
    Ligne(l++, StringFormat("plancher      %10.2f", gPlancher), clrSilver);
    Ligne(l++, StringFormat("equity        %10.2f", eq), clrSilver);
@@ -382,6 +534,8 @@ void Panneau()
    Ligne(l++, " ", clrSilver);
    Ligne(l++, StringFormat("positions     %10d", NbPositions()), clrSilver);
    Ligne(l++, "bascule a        00:00 UTC", clrSilver);
+   if(AlertePush && !TerminalInfoInteger(TERMINAL_NOTIFICATIONS_ENABLED))
+      Ligne(l++, "push inactif : MetaQuotes ID absent", clrOrange);
    if(gAlerteEcran != "")
       Ligne(l++, ">> " + gAlerteEcran, clrRed);
    else
@@ -410,7 +564,7 @@ int OnInit()
 
    RelireMoyenneLots();
    gJourUTC = 0;
-   EventSetTimer(5);
+   EventSetTimer(1);                      // le compte a rebours se joue a la seconde
 
    string pourquoi = RaisonBlocageTrading();
    if(pourquoi != "")
@@ -430,6 +584,19 @@ void OnDeinit(const int reason)
    EventKillTimer();
    ObjectsDeleteAll(0, PFX);
    if(gATR != INVALID_HANDLE) IndicatorRelease(gATR);
+  }
+
+//+------------------------------------------------------------------+
+//| Une position peut naitre entre deux ticks sur un marche calme :    |
+//| OnTradeTransaction fait partir l'alerte a la seconde ou elle       |
+//| apparait, au lieu d'attendre le prochain passage du minuteur.      |
+void OnTradeTransaction(const MqlTradeTransaction &trans,
+                        const MqlTradeRequest &request,
+                        const MqlTradeResult &result)
+  {
+   if(trans.type == TRADE_TRANSACTION_DEAL_ADD
+      || trans.type == TRADE_TRANSACTION_POSITION)
+      Surveiller();
   }
 
 //+------------------------------------------------------------------+
@@ -467,7 +634,11 @@ void Surveiller()
    double eq    = AccountInfoDouble(ACCOUNT_EQUITY);
    double perte = gEquityDebut - eq;
 
-   PoserStops();
+   // Quand le serveur refuse les experts, insister ne sert qu'a inonder le
+   // journal : on bascule en veille et on alerte au lieu d'agir.
+   if(RaisonBlocageTrading() == "")
+      PoserStops();
+   VeillerStops();
 
    if(eq <= gPlancher + gRisque && NbPositions() > 0)
      {
