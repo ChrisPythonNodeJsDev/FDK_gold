@@ -64,6 +64,10 @@ input bool   AlertePush       = true;  // Notification sur le téléphone (MetaQ
 input int    RappelSecondes   = 20;    // Intervalle entre deux rappels
 input int    SecondesCritique = 105;   // Dernière sommation avant les 120 s
 input int    PreavisClotureMin = 15;   // Préavis avant l'heure de clôture (minutes)
+//--- La perte journalière et le plancher sont des limites de COMPTE.
+//--- Avec une instance par symbole, chacune crierait le même
+//--- franchissement : on ne l'active que sur un seul graphique.
+input bool   AlarmesCompte    = true;  // Alarmes de compte — UN SEUL graphique
 
 input group "=== Affichage et journal ==="
 input bool   AfficherPanneau = true;
@@ -297,6 +301,19 @@ int NbPositions()
   }
 
 //+------------------------------------------------------------------+
+//| Positions ouvertes sur l'ensemble du compte, tous symboles.       |
+//| Les alarmes de compte doivent annoncer le bon nombre, pas         |
+//| seulement celles du graphique où tourne cette instance.           |
+//+------------------------------------------------------------------+
+int NbPositionsCompte()
+  {
+   int n = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+      if(PositionGetTicket(i) != 0) n++;
+   return(n);
+  }
+
+//+------------------------------------------------------------------+
 //| Ferme tout. Une position de moins de deux minutes ne peut pas     |
 //| être clôturée sans violer la règle 04 : on attend, SAUF si la     |
 //| perte du jour approche la limite dure, auquel cas on choisit la   |
@@ -523,6 +540,7 @@ void VeillerStops()
 //+------------------------------------------------------------------+
 void VeillerPerte()
   {
+   if(!AlarmesCompte) return;
    double eq    = AccountInfoDouble(ACCOUNT_EQUITY);
    double perte = gEquityDebut - eq;
    double marge = eq - gPlancher;
@@ -555,7 +573,7 @@ void VeillerPerte()
       gPerteCriee[i] = true;
       if(i < niveau) continue;                 // marqué, mais pas crié
       string corps = StringFormat("perte du jour %.2f USD (seuil %.2f). %d position(s) ouverte(s).",
-                                  perte, seuils[i], NbPositions());
+                                  perte, seuils[i], NbPositionsCompte());
       Crier(titres[i], corps, i >= 1);
       Noter(i >= 3 ? "VIOLATION_REGLE_02" : "ALERTE_PERTE", corps);
       gDernierRappelPerte = TimeCurrent();
@@ -563,12 +581,12 @@ void VeillerPerte()
 
    // Tant qu'on reste au-dessus de l'arrêt, on rappelle.
    if(niveau >= 1 && TimeCurrent() - gDernierRappelPerte >= RappelSecondes
-      && NbPositions() > 0)
+      && NbPositionsCompte() > 0)
      {
       gDernierRappelPerte = TimeCurrent();
       Crier("journee a arreter",
             StringFormat("perte %.2f USD, %d position(s) encore ouverte(s)",
-                         perte, NbPositions()), false);
+                         perte, NbPositionsCompte()), false);
      }
   }
 
@@ -581,7 +599,7 @@ void VeillerPerte()
 void VeillerCloture()
   {
    gCompteCloture = "";
-   if(!ClotureAvantBascule || NbPositions() == 0)
+   if(!AlarmesCompte || !ClotureAvantBascule || NbPositionsCompte() == 0)
      {
       gPreavisCrie = 0;
       return;
@@ -609,9 +627,9 @@ void VeillerCloture()
 
    string corps = (restant > 0)
       ? StringFormat("%d position(s) ouverte(s), cloture dans %d min %02d s",
-                     NbPositions(), restant / 60, restant % 60)
+                     NbPositionsCompte(), restant / 60, restant % 60)
       : StringFormat("%d position(s) encore ouverte(s) apres l'heure de cloture",
-                     NbPositions());
+                     NbPositionsCompte());
    string titres[5] = {"", "PREAVIS DE CLOTURE", "CLOTURE DANS 5 MIN",
                        "CLOTURE DANS 1 MIN", "FERME MAINTENANT"};
    Crier(titres[niveau], corps, niveau >= 3);
@@ -679,6 +697,9 @@ void Panneau()
    Ligne(l++, " ", clrSilver);
    Ligne(l++, StringFormat("positions     %10d", NbPositions()), clrSilver);
    Ligne(l++, "bascule a        00:00 UTC", clrSilver);
+   Ligne(l++, AlarmesCompte ? "alarmes de compte : ICI"
+                            : "alarmes de compte : ailleurs",
+         AlarmesCompte ? clrAqua : clrGray);
    if(AlertePush && !TerminalInfoInteger(TERMINAL_NOTIFICATIONS_ENABLED))
       Ligne(l++, "push inactif : MetaQuotes ID absent", clrOrange);
    if(gAlerteEcran != "")
