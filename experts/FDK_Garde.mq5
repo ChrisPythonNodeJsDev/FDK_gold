@@ -35,6 +35,11 @@ input double PctArretJour   = 3.6;   // Arrêt volontaire  (90 USD sur 2 500)
 input double PctAlerteJour  = 3.0;   // Premier avertissement (75 sur 2 500)
 input double PctUrgence     = 4.4;   // Au-delà, on ferme même avant 2 minutes
 input double PctRisqueTrade = 0.5;   // Plafond par trade (12,50 sur 2 500)
+//--- Règle « idée de trading » : plusieurs opérations sur le MÊME actif,
+//--- dans la MÊME direction, à moins de 30 minutes d'écart, comptent pour
+//--- une seule idée dont le risque cumulé est plafonné à 2 %.
+input double PctIdeeMax     = 2.0;   // Plafond par idée (50 sur 2 500)
+input int    IdeeFenetreMin = 30;    // Minutes regroupant les opérations
 
 //--- La journée de trading bascule à 19 h en Colombie (UTC-5), soit
 //--- minuit UTC pile, soit 01 h 00 au Bénin. Tout est calculé en UTC :
@@ -84,6 +89,9 @@ int    gATR = INVALID_HANDLE;
 //--- Seuils en valeur absolue, dérivés du solde au démarrage.
 double gSolde = 0.0, gPlancher = 0.0, gDisqualif = 0.0;
 double gPerteMax = 0.0, gArret = 0.0, gAlerte = 0.0, gUrgence = 0.0, gRisque = 0.0;
+double gIdeeMax  = 0.0;
+bool   gIdeeCriee[2];          // 0 = achat, 1 = vente
+string gIdeeEcran[2];
 
 datetime gJourUTC     = 0;     // minuit UTC de la journée en cours
 double   gEquityDebut = 0.0;
@@ -530,6 +538,71 @@ void VeillerStops()
   }
 
 //+------------------------------------------------------------------+
+//| Risque cumulé d'une idée de trading : même symbole, même sens.    |
+//|                                                                   |
+//| Le risque de chaque position se mesure sur SON stop réel. Une      |
+//| position encore sans stop est comptée au stop qu'elle devrait      |
+//| avoir — sinon une entrée non protégée ferait paraître l'idée plus  |
+//| sage qu'elle ne l'est, exactement au mauvais moment.               |
+//+------------------------------------------------------------------+
+double RisqueIdee(const long sens, int &nb)
+  {
+   double somme = 0.0; nb = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong t = PositionGetTicket(i);
+      if(t == 0 || !Surveillee(t)) continue;
+      if(PositionGetInteger(POSITION_TYPE) != sens) continue;
+      double vol   = PositionGetDouble(POSITION_VOLUME);
+      double ouvre = PositionGetDouble(POSITION_PRICE_OPEN);
+      double sl    = PositionGetDouble(POSITION_SL);
+      double ecart = (sl > 0.0) ? MathAbs(ouvre - sl) : StopPourVolume(vol);
+      somme += RisqueDe(ecart, vol);
+      nb++;
+     }
+   return(somme);
+  }
+
+//+------------------------------------------------------------------+
+//| Alarme 4 — le plafond de l'idée de trading.                       |
+//|                                                                   |
+//| Lecture prudente : on SOMME le risque des positions ouvertes dans  |
+//| le même sens sur le même actif. Le règlement dit ailleurs que le   |
+//| risque « sera mesuré en fonction du risque le plus élevé défini    |
+//| par le stop loss », ce qui se lirait comme un maximum et non une   |
+//| somme. Les deux lectures ne donnent pas le même chiffre : tant     |
+//| que le support n'a pas tranché, on prend la plus sévère.           |
+//+------------------------------------------------------------------+
+void VeillerIdee()
+  {
+   long sens[2] = {POSITION_TYPE_BUY, POSITION_TYPE_SELL};
+   string noms[2] = {"ACHAT", "VENTE"};
+   for(int k = 0; k < 2; k++)
+     {
+      int nb = 0;
+      double r = RisqueIdee(sens[k], nb);
+      if(nb == 0)
+        {
+         gIdeeCriee[k] = false;
+         gIdeeEcran[k] = "";
+         continue;
+        }
+      gIdeeEcran[k] = StringFormat("idee %-5s %7.2f / %.2f  (%d)",
+                                   noms[k], r, gIdeeMax, nb);
+      if(r >= gIdeeMax && !gIdeeCriee[k])
+        {
+         gIdeeCriee[k] = true;
+         string corps = StringFormat("%d position(s) %s cumulent %.2f USD, plafond %.2f",
+                                     nb, noms[k], r, gIdeeMax);
+         Crier("PLAFOND D IDEE ATTEINT", corps, true);
+         Noter("ALERTE_IDEE", corps);
+        }
+      else if(r < gIdeeMax * 0.9)
+         gIdeeCriee[k] = false;          // réarmement une fois redescendu
+     }
+  }
+
+//+------------------------------------------------------------------+
 //| Alarme 2 — la perte de la journée.                                |
 //|                                                                   |
 //| Quatre paliers, criés une fois chacun. Quand plusieurs sont        |
@@ -696,6 +769,14 @@ void Panneau()
       Ligne(l++, StringFormat("moyenne lots  %10.3f", gMoyenneLots), clrSilver);
    Ligne(l++, " ", clrSilver);
    Ligne(l++, StringFormat("positions     %10d", NbPositions()), clrSilver);
+   for(int k = 0; k < 2; k++)
+      if(gIdeeEcran[k] != "")
+        {
+         int nb = 0;
+         double r = RisqueIdee(k == 0 ? POSITION_TYPE_BUY : POSITION_TYPE_SELL, nb);
+         Ligne(l++, gIdeeEcran[k],
+               r >= gIdeeMax ? clrRed : (r >= gIdeeMax * 0.8 ? clrOrange : clrSilver));
+        }
    Ligne(l++, "bascule a        00:00 UTC", clrSilver);
    Ligne(l++, AlarmesCompte ? "alarmes de compte : ICI"
                             : "alarmes de compte : ailleurs",
@@ -727,6 +808,7 @@ int OnInit()
    gAlerte    = gSolde * PctAlerteJour  / 100.0;
    gUrgence   = gSolde * PctUrgence     / 100.0;
    gRisque    = gSolde * PctRisqueTrade / 100.0;
+   gIdeeMax   = gSolde * PctIdeeMax     / 100.0;
 
    RelireMoyenneLots();
    gJourUTC = 0;
@@ -810,6 +892,7 @@ void Surveiller()
    if(RaisonBlocageTrading() == "")
       PoserStops();
    VeillerStops();
+   VeillerIdee();
    VeillerPerte();
    VeillerCloture();
 
