@@ -134,12 +134,12 @@ void Noter(const string evenement, const string detail)
    FileSeek(h, 0, SEEK_END);
    if(neuf)
       FileWrite(h, "horodatage_utc", "symbole", "evenement", "detail",
-                "equity", "perte_du_jour", "distance_plancher", "lot_du_jour");
+                "equity", "resultat_du_jour", "distance_plancher", "lot_du_jour");
    double eq = AccountInfoDouble(ACCOUNT_EQUITY);
    FileWrite(h, TimeToString(TimeGMT(), TIME_DATE|TIME_SECONDS),
              _Symbol, evenement, detail,
              DoubleToString(eq, 2),
-             DoubleToString(gEquityDebut - eq, 2),
+             DoubleToString(eq - gEquityDebut, 2),
              DoubleToString(eq - gPlancher, 2),
              DoubleToString(gLotDuJour, 3));
    FileClose(h);
@@ -160,6 +160,28 @@ string RaisonBlocageTrading()
    if(!AccountInfoInteger(ACCOUNT_TRADE_ALLOWED))
       return("Trading desactive sur le compte");
    return("");
+  }
+
+//+------------------------------------------------------------------+
+//| Résultat réalisé depuis la bascule, tous symboles confondus.      |
+//| La limite journalière est une limite de COMPTE : un trade perdant |
+//| sur un autre indice compte autant qu'ici.                          |
+//+------------------------------------------------------------------+
+double RealiseDuJour(const datetime debutJour)
+  {
+   double somme = 0.0;
+   if(!HistorySelect(debutJour, TimeCurrent() + 3600))
+      return(0.0);
+   for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
+     {
+      ulong t = HistoryDealGetTicket(i);
+      if(t == 0) continue;
+      if((datetime)HistoryDealGetInteger(t, DEAL_TIME) < debutJour) continue;
+      somme += HistoryDealGetDouble(t, DEAL_PROFIT)
+             + HistoryDealGetDouble(t, DEAL_SWAP)
+             + HistoryDealGetDouble(t, DEAL_COMMISSION);
+     }
+   return(somme);
   }
 
 //+------------------------------------------------------------------+
@@ -635,8 +657,14 @@ void Panneau()
    Ligne(l++, StringFormat("equity        %10.2f", eq), clrSilver);
    Ligne(l++, StringFormat("au plancher   %10.2f", marge),
          marge < gRisque * 2 ? clrRed : (marge < gRisque * 5 ? clrOrange : clrLightGreen));
-   Ligne(l++, StringFormat("perte du jour %10.2f / %.2f", perte, gArret),
-         perte >= gArret ? clrRed : (perte >= gAlerte ? clrOrange : clrLightGreen));
+   // Le résultat porte son signe naturel : un gain s'affiche en gain.
+   double resultat = -perte;
+   Ligne(l++, StringFormat("resultat jour %+10.2f", resultat),
+         resultat >= 0.0 ? clrLightGreen : (perte >= gAlerte ? clrOrange : clrSilver));
+   // Et ce qui compte vraiment : ce qu'il reste à perdre avant l'arrêt.
+   double reste = gArret - perte;
+   Ligne(l++, StringFormat("avant l arret %10.2f", reste),
+         reste <= 0.0 ? clrRed : (reste <= gRisque * 2.0 ? clrOrange : clrLightGreen));
    Ligne(l++, " ", clrSilver);
    if(gLotDuJour > 0.0)
      {
@@ -729,7 +757,10 @@ void Surveiller()
    if(jour != gJourUTC)
      {
       gJourUTC = jour;
-      gEquityDebut = AccountInfoDouble(ACCOUNT_EQUITY);
+      // Le solde au début de la journée, et non l'equity au moment où
+      // l'EA est posé : attaché à 20 h après 200 USD de pertes, il
+      // repartait de zéro et autorisait 358 USD de plus.
+      gEquityDebut = AccountInfoDouble(ACCOUNT_BALANCE) - RealiseDuJour(jour);
       gBloque = false; gMotif = "";
       for(int i = 0; i < 4; i++) gPerteCriee[i] = false;
       gPlancherCrie = false; gPreavisCrie = 0; gDernierRappelPerte = 0;
