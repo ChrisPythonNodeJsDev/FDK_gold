@@ -17,13 +17,26 @@ bool ExportTF(ENUM_TIMEFRAMES tf, int count, string label)
    MqlRates r[];
    ArraySetAsSeries(r, false);            // chronological: oldest first
 
+   // On demande, et on se contente de ce qui revient. Reclamer un nombre
+   // fixe echoue des que le symbole a moins d'historique : le 02/10 la
+   // demande de 6000 bougies H4 sur un indice synthetique qui n'en a que
+   // 1876 est repartie en erreur 4401, et le fichier H4 n'a pas ete ecrit.
    int got = CopyRates(_Symbol, tf, 0, count, r);
    if(got <= 0)
      {
-      PrintFormat("FDK_Export: aucune donnée %s (err %d). Fais défiler le "
-                  "graphique vers la gauche pour charger l'historique.",
-                  label, GetLastError());
-      return(false);
+      int dispo = Bars(_Symbol, tf);
+      if(dispo > 10)
+         got = CopyRates(_Symbol, tf, 0, dispo, r);
+      if(got <= 0)
+        {
+         PrintFormat("FDK_Export: aucune donnée %s (err %d, %d barres vues). "
+                     "Ouvre un graphique dans cette unité de temps pour que "
+                     "le terminal construise la série.",
+                     label, GetLastError(), dispo);
+         return(false);
+        }
+      PrintFormat("FDK_Export: %s limité à %d bougies (l'historique s'arrête là)",
+                  label, got);
      }
 
    string fname = StringFormat("FDK_%s_%s%s.csv", _Symbol, label, Suffixe);
