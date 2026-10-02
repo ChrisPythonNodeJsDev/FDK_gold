@@ -7,7 +7,7 @@
 //--- Toute la logique servant à DÉCIDER vit dans cet include, partagé avec
 //--- l'Expert Advisor. Dupliquer ces calculs ferait diverger l'indicateur
 //--- de l'EA et du backtest, sans qu'on puisse dire lequel a raison.
-#include <FDK_Common.mqh>
+#include <FDK_Common_Vol.mqh>
 
 //--- Inputs: session times are in "Benin time" (GMT+1, no DST); the offset
 //--- converts broker/server time to Benin time: BeninTime = ServerTime + offset.
@@ -154,7 +154,7 @@ input bool   LogSignals  = true;   // Enregistrer chaque ENTREE AUTORISEE dans u
 input string LogFileName = "";     // Vide = FDK_signaux_<symbole>.csv
 
 //--- Object name prefixes
-#define PFX "FDKG_"
+#define PFX "FDKV_"
 #define PANEL_BG    PFX"panel_bg"
 #define PANEL_PREFIX PFX"panel_line_"
 #define CMT_BG       PFX"cmt_bg"

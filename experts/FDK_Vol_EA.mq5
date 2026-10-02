@@ -17,7 +17,7 @@
 #property version   "1.00"
 
 #include <Trade/Trade.mqh>
-#include <FDK_Common.mqh>
+#include <FDK_Common_Vol.mqh>
 
 input group "=== Fuseau horaire ==="
 input bool   AutoDetectTimezone       = true;
@@ -70,7 +70,7 @@ input group "=== Exécution ==="
 // risque par evenement doit rester constant.
 input int    MaxPositions = 5;    // Positions simultanees autorisees
 input double Lots        = 0.02;
-input long   MagicNumber = 20260927;
+input long   MagicNumber = 20261002;   // distinct de celui de l'or
 
 //--- Purement visuel. L'EA décide via FDK_Common.mqh ; charger l'indicateur
 //--- ne change aucune décision, ça permet seulement de le VOIR travailler en
@@ -134,7 +134,7 @@ int OnInit()
    // ChartIndicatorAdd echoue alors sans rien signaler.
    if(ShowIndicator)
      {
-      gIndHandle = iCustom(_Symbol, PERIOD_CURRENT, "FDK_Gold_Custom");
+      gIndHandle = iCustom(_Symbol, PERIOD_CURRENT, "FDK_Vol_Custom");
       if(gIndHandle == INVALID_HANDLE)
          Print("FDK_EA: indicateur non chargé (err ", GetLastError(),
                ") — le test continue, seul l'affichage manque.");

@@ -1,5 +1,24 @@
 # Contexte du projet
 
+> **Cette branche (`indices`) est celle des indices synthétiques Deriv.**
+> L'or vit sur la branche `or`, dans `~/FDK_gold`, avec ses propres
+> fichiers : `FDK_Gold_Custom`, `FDK_Gold_EA`, `FDK_Common.mqh`.
+> Ici : `FDK_Vol_Custom`, `FDK_Vol_EA`, `FDK_Common_Vol.mqh`, numéro
+> magique 20261002. Les deux cohabitent dans MT5 et sont compilés
+> chacun depuis son dossier de travail.
+>
+> Le `.mqh` est désormais **dupliqué**. Une correction faite d'un côté
+> ne traverse pas : il faut la reporter à la main. Six bugs y ont été
+> corrigés entre le 28 et le 30 septembre — vérifier qu'ils sont
+> présents des deux côtés avant d'accuser le marché.
+>
+> Ce que les mesures disent de ces instruments : volatilité identique
+> aux 24 heures du cadran à 2,0 % près, biais de structure sans valeur
+> prédictive (|t| <= 0.92 sur six séries), et l'effet horaire apparent
+> sur le V50 (1s) ne s'est reproduit sur aucun autre symbole. Voir
+> `resultats/synthetiques_deriv.txt`.
+
+
 Indicateur MetaTrader 5 pour XAUUSD (or) sur compte démo Deriv, plus
 l'outillage de backtest servant à mesurer ce qu'il vaut.
 
