@@ -358,6 +358,141 @@ struct FDK_Amd
    int    dir;         // sens de la distribution attendue
   };
 
+//+------------------------------------------------------------------+
+//| PROFIL DE MARCHÉ                                                  |
+//|                                                                   |
+//| SESSIONS : l'or. L'horloge porte de l'information — l'asiatique   |
+//|   accumule, Londres manipule, New York distribue.                 |
+//| CONTINU  : les indices synthétiques Deriv. Mesuré sur 30 000      |
+//|   bougies M15 et trois symboles : la volatilité est identique aux |
+//|   24 heures du cadran à 2,0 % près, et le biais de structure n'a  |
+//|   aucune valeur prédictive (|t| <= 0.92 sur six séries). La       |
+//|   couche horaire est donc désactivée, et la séquence AMD est      |
+//|   ré-ancrée sur une consolidation glissante.                      |
+//|                                                                   |
+//| Le profil CONTINU est fourni parce qu'il a été demandé. Rien      |
+//| dans les mesures ne laisse attendre qu'il gagne de l'argent.      |
+//+------------------------------------------------------------------+
+enum FDK_Profil
+  {
+   FDK_PROFIL_SESSIONS,   // Marché à sessions (or, forex)
+   FDK_PROFIL_CONTINU     // Marché continu 24h/24 (indices synthétiques)
+  };
+
+//+------------------------------------------------------------------+
+//| SÉQUENCE AMD SANS HORLOGE                                         |
+//|                                                                   |
+//| FDK_ComputeAmd ancre la consolidation sur la plage asiatique. Sur |
+//| un marché continu cette plage ne désigne rien. On revient donc à  |
+//| la définition que donnent les vidéos quand la consolidation est   |
+//| difficile à voir : partir de la manipulation et remonter.         |
+//|                                                                   |
+//|   consolidation : consoBars bougies dont l'amplitude totale reste |
+//|                   sous maxATR x ATR                               |
+//|   manipulation  : sortie de cette plage, puis clôture à l'intérieur|
+//|   distribution  : départ à l'opposé, confirmé par une cassure     |
+//|                                                                   |
+//| Aucune heure n'intervient. On retient la consolidation la plus    |
+//| récente que le prix a réellement quittée.                         |
+//+------------------------------------------------------------------+
+void FDK_ComputeAmdContinu(const string sym, const ENUM_TIMEFRAMES tf,
+                           const int barsBack, const int consoBars,
+                           const double maxATR, FDK_Amd &out)
+  {
+   out.side = 0; out.ext = 0.0; out.level = 0.0;
+   out.confirmed = false; out.dir = 0;
+
+   int mini = consoBars + 10;
+   if(barsBack < mini || consoBars < 3)
+      return;
+
+   double h[], l[], c[];
+   ArraySetAsSeries(h, false);          // chronologique : 0 = la plus ancienne
+   ArraySetAsSeries(l, false);
+   ArraySetAsSeries(c, false);
+   int n = CopyHigh(sym, tf, 0, barsBack, h);
+   if(n < mini) return;                 // on prend ce qui vient, pas plus
+   if(CopyLow  (sym, tf, 0, n, l) < n) return;
+   if(CopyClose(sym, tf, 0, n, c) < n) return;
+
+   // ATR de Wilder, du plus ancien vers le plus récent
+   double atr[];
+   ArrayResize(atr, n);
+   atr[0] = h[0] - l[0];
+   for(int i = 1; i < n; i++)
+     {
+      double tr = MathMax(h[i] - l[i],
+                  MathMax(MathAbs(h[i] - c[i-1]), MathAbs(l[i] - c[i-1])));
+      atr[i] = (atr[i-1] * 13.0 + tr) / 14.0;
+     }
+
+   // On cherche la consolidation la plus récente que le prix a quittée.
+   for(int fin = n - 2; fin >= consoBars - 1; fin--)
+     {
+      int debut = fin - consoBars + 1;
+      double hi = h[debut], lo = l[debut];
+      for(int i = debut + 1; i <= fin; i++)
+        {
+         if(h[i] > hi) hi = h[i];
+         if(l[i] < lo) lo = l[i];
+        }
+      if(hi <= lo) continue;
+      if(atr[fin] <= 0.0) continue;
+      if((hi - lo) > maxATR * atr[fin]) continue;    // trop large : pas un range
+
+      // La plage tient. Le prix en est-il sorti, puis rentré ?
+      bool outUp = false, outDn = false;
+      int  sweptAt = -1;
+      int  side = 0;
+      for(int i = fin + 1; i < n; i++)
+        {
+         if(h[i] > hi) outUp = true;
+         if(l[i] < lo) outDn = true;
+         if(outUp && c[i] < hi) { side = +1; sweptAt = i; break; }
+         if(outDn && c[i] > lo) { side = -1; sweptAt = i; break; }
+        }
+      if(side == 0) continue;           // pas encore de manipulation ici
+
+      out.side = side;
+      out.dir  = -side;                 // la distribution part à l'opposé
+
+      int extIdx = debut;
+      out.ext = (out.dir > 0) ? l[debut] : h[debut];
+      for(int i = debut; i <= sweptAt; i++)
+        {
+         if(out.dir > 0 && l[i] <= out.ext) { out.ext = l[i]; extIdx = i; }
+         if(out.dir < 0 && h[i] >= out.ext) { out.ext = h[i]; extIdx = i; }
+        }
+
+      out.level = (out.dir > 0) ? h[debut] : l[debut];
+      for(int i = debut; i <= extIdx; i++)
+        {
+         if(out.dir > 0) out.level = MathMax(out.level, h[i]);
+         else            out.level = MathMin(out.level, l[i]);
+        }
+
+      for(int i = extIdx + 1; i < n; i++)
+         if((out.dir > 0 && c[i] > out.level) || (out.dir < 0 && c[i] < out.level))
+           {
+            out.confirmed = true;
+            break;
+           }
+      return;                           // la plus récente suffit
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Une session unique couvrant la journée : sur un marché continu,   |
+//| « hors session » n'existe pas et ne doit rien interdire.           |
+//+------------------------------------------------------------------+
+void FDK_SessionsContinues(FDK_Session &s[])
+  {
+   ArrayResize(s, 1);
+   s[0].name = "CONTINU";
+   s[0].from = 0;
+   s[0].to   = 86400;
+  }
+
 struct FDK_Decision
   {
    bool allowed;
