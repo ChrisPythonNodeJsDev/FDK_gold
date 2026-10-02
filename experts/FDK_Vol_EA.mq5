@@ -36,6 +36,12 @@ input int    FenetreStart   = 1100;   // Fenêtre entre Londres et New York
 input int    FenetreEnd     = 1330;
 input bool   TradeAsia      = false;   // L'Asie est la phase d'accumulation
 
+input group "=== Profil de marché ==="
+input FDK_Profil Profil      = FDK_PROFIL_CONTINU;
+input int        ConsoBars   = 12;    // Bougies de la consolidation (profil continu)
+input double     ConsoMaxATR = 1.5;   // Amplitude maxi de la consolidation (x ATR)
+input int        AmdBarsBack = 300;   // Historique parcouru pour la séquence AMD
+
 input group "=== Déclenchement ==="
 input FDK_EntryMode EntryMode   = FDK_ENTRY_LES_DEUX;
 input bool          AllowNeutralH4 = true;
@@ -100,6 +106,12 @@ void BuildWindows(FDK_Session &w[])
 //+------------------------------------------------------------------+
 void BuildSessions(FDK_Session &s[])
   {
+   if(Profil == FDK_PROFIL_CONTINU)
+     {
+      FDK_SessionsContinues(s);
+      return;
+     }
+
    ArrayResize(s, 5);
    s[4].name = "FENETRE"; s[4].from = FDK_HHMMToSec(FenetreStart);   s[4].to = FDK_HHMMToSec(FenetreEnd);
    s[0].name = "ASIE";    s[0].from = FDK_HHMMToSec(AsiaStart);      s[0].to = FDK_HHMMToSec(AsiaEnd);
@@ -187,8 +199,16 @@ void OnTick()
    double asiaHi = 0.0, asiaLo = 0.0;
    FDK_Amd amd;
    amd.side = 0; amd.ext = 0.0; amd.level = 0.0; amd.confirmed = false; amd.dir = 0;
+   amd.rangeHi = 0.0; amd.rangeLo = 0.0; amd.rangeBars = 0;
 
-   if(FDK_RangeHiLo(_Symbol, PERIOD_CURRENT,
+   if(Profil == FDK_PROFIL_CONTINU)
+     {
+      // Même séquence, ancrée sur une consolidation glissante : sur un
+      // marché continu la plage asiatique ne désigne rien.
+      FDK_ComputeAmdContinu(_Symbol, PERIOD_CURRENT, AmdBarsBack,
+                            ConsoBars, ConsoMaxATR, amd);
+     }
+   else if(FDK_RangeHiLo(_Symbol, PERIOD_CURRENT,
                     beninMidnight + FDK_HHMMToSec(AsiaStart),
                     beninMidnight + FDK_HHMMToSec(AsiaEnd), asiaHi, asiaLo))
      {

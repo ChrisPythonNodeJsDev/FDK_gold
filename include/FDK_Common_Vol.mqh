@@ -356,6 +356,9 @@ struct FDK_Amd
    double level;       // niveau dont la cassure confirme le retournement
    bool   confirmed;
    int    dir;         // sens de la distribution attendue
+   double rangeHi;     // plage de consolidation retenue (profil continu)
+   double rangeLo;
+   int    rangeBars;   // sa largeur en bougies
   };
 
 //+------------------------------------------------------------------+
@@ -401,6 +404,7 @@ void FDK_ComputeAmdContinu(const string sym, const ENUM_TIMEFRAMES tf,
   {
    out.side = 0; out.ext = 0.0; out.level = 0.0;
    out.confirmed = false; out.dir = 0;
+   out.rangeHi = 0.0; out.rangeLo = 0.0; out.rangeBars = 0;
 
    int mini = consoBars + 10;
    if(barsBack < mini || consoBars < 3)
@@ -455,6 +459,7 @@ void FDK_ComputeAmdContinu(const string sym, const ENUM_TIMEFRAMES tf,
 
       out.side = side;
       out.dir  = -side;                 // la distribution part à l'opposé
+      out.rangeHi = hi; out.rangeLo = lo; out.rangeBars = consoBars;
 
       int extIdx = debut;
       out.ext = (out.dir > 0) ? l[debut] : h[debut];
@@ -528,6 +533,7 @@ void FDK_ComputeAmd(const string sym, const ENUM_TIMEFRAMES tf,
   {
    out.side = 0; out.ext = 0.0; out.level = 0.0;
    out.confirmed = false; out.dir = 0;
+   out.rangeHi = asiaHi; out.rangeLo = asiaLo; out.rangeBars = 0;
    if(asiaHi <= asiaLo)
       return;
 

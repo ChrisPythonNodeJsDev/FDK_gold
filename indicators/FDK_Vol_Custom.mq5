@@ -99,6 +99,18 @@ input int    ZoneOpacity       = 55;     // 0-255, opacité du remplissage des z
 //---         d'une cassure de structure confirmant la distribution.
 //--- Mesure sur 15 mois : AMD donne -0.002 R, soit zéro. Il est proposé
 //--- parce qu'il correspond à la méthode lue, pas parce qu'il rapporte.
+input group "=== Profil de marché ==="
+//--- SESSIONS : l'horloge porte de l'information (or, forex).
+//--- CONTINU  : elle n'en porte pas. Mesuré sur 30 000 bougies M15 et trois
+//---            indices synthétiques : la volatilité est identique aux 24
+//---            heures du cadran à 2,0 % près. Sessions et fenêtres sont
+//---            alors désactivées, et l'AMD s'ancre sur une consolidation
+//---            glissante au lieu de la plage asiatique.
+input FDK_Profil Profil      = FDK_PROFIL_CONTINU;
+input int        ConsoBars   = 12;    // Bougies de la consolidation (profil continu)
+input double     ConsoMaxATR = 1.5;   // Amplitude maxi de la consolidation (x ATR)
+input int        AmdBarsBack = 300;   // Historique parcouru pour la séquence AMD
+
 input group "=== Déclenchement ==="
 input FDK_EntryMode EntryMode   = FDK_ENTRY_LES_DEUX;
 input bool       AllowNeutralH4 = true;  // H4 neutre n'interdit plus l'entrée
@@ -195,6 +207,9 @@ int      gCtxSwQuick   = 0, gCtxSwCumul = 0;
 double   gCtxRangeHi   = 0.0, gCtxRangeLo = 0.0;
 double   gCtxSL        = 0.0, gCtxTP1 = 0.0, gCtxTP2 = 0.0;
 bool     gCtxValid     = false;   // tampons indicateurs prets ?
+double   gAmdRangeHi   = 0.0;   // plage de consolidation retenue (continu)
+double   gAmdRangeLo   = 0.0;
+int      gAmdRangeBars = 0;
 bool     gCtxOkM15     = true;   // le biais M15 a-t-il pu etre lu ?
 bool     gCtxOkH4      = true;   // idem H4
 
@@ -546,6 +561,19 @@ struct SessionDef
 
 int GetSessions(SessionDef &sessions[])
   {
+   // Sur un marché continu, « hors session » n'existe pas : une seule plage
+   // couvre la journée, sinon le système s'interdirait de trader 24h sur 24
+   // pour une raison qui n'a pas de sens ici.
+   if(Profil == FDK_PROFIL_CONTINU)
+     {
+      ArrayResize(sessions, 1);
+      sessions[0].name = "CONTINU";
+      sessions[0].startSec = 0;
+      sessions[0].endSec   = 86400;
+      sessions[0].clr      = ColorLondon;
+      return(1);
+     }
+
    ArrayResize(sessions, 5);
    sessions[0].name = "ASIE";      sessions[0].startSec = HHMMToSeconds(AsiaStart);      sessions[0].endSec = HHMMToSeconds(AsiaEnd);      sessions[0].clr = ColorAsia;
    sessions[1].name = "LONDRES";   sessions[1].startSec = HHMMToSeconds(LondonStart);    sessions[1].endSec = HHMMToSeconds(LondonEnd);    sessions[1].clr = ColorLondon;
@@ -561,7 +589,9 @@ int GetSessions(SessionDef &sessions[])
 // Draw session boxes for the visible chart range, one rectangle per session per day
 void DrawSessionBoxes()
   {
-   if(!IntradayTF())
+   // Une boîte unique couvrant chaque journée n'apprendrait rien et
+   // masquerait le prix : en profil continu on ne dessine rien.
+   if(!IntradayTF() || Profil == FDK_PROFIL_CONTINU)
      {
       string none[];
       PruneObjects(PFX"box_", none);
@@ -1370,6 +1400,17 @@ bool InTradableWindow(int sod)
 // liquidité, puis la distribution se confirme par une cassure de structure.
 // Sans cette confirmation on parierait sur un retournement au lieu
 // d'attendre qu'il se manifeste — c'est ce qui distingue -0.002 de -0.216 R.
+void ComputeAmdContinu()
+  {
+   FDK_Amd a;
+   FDK_ComputeAmdContinu(_Symbol, PERIOD_CURRENT, AmdBarsBack,
+                         ConsoBars, ConsoMaxATR, a);
+   gAmdSide = a.side; gAmdExt = a.ext; gAmdLevel = a.level;
+   gAmdConfirmed = a.confirmed; gAmdDir = a.dir;
+   gAmdRangeHi = a.rangeHi; gAmdRangeLo = a.rangeLo; gAmdRangeBars = a.rangeBars;
+  }
+
+//+------------------------------------------------------------------+
 void ComputeAmd(datetime dayStart, double asiaHi, double asiaLo)
   {
    FDK_Session wins[];
@@ -1386,6 +1427,7 @@ void ComputeAmd(datetime dayStart, double asiaHi, double asiaLo)
 
    gAmdSide = a.side; gAmdExt = a.ext; gAmdLevel = a.level;
    gAmdConfirmed = a.confirmed; gAmdDir = a.dir;
+   gAmdRangeHi = a.rangeHi; gAmdRangeLo = a.rangeLo; gAmdRangeBars = a.rangeBars;
   }
 
 //+------------------------------------------------------------------+
@@ -1573,7 +1615,20 @@ void RefreshContext()
    gCtxSwUp = 0; gCtxSwDn = 0; gCtxSwTot = 0;
    gCtxSwQuick = 0; gCtxSwCumul = 0;
 
-   if(ShowAsiaStats && IntradayTF())
+   if(Profil == FDK_PROFIL_CONTINU)
+     {
+      // Pas de plage asiatique ici : la référence est la consolidation la
+      // plus récente que le prix ait quittée.
+      ComputeAmdContinu();
+      if(gAmdRangeHi > gAmdRangeLo)
+        {
+         gCtxAsiaValid = true;
+         gCtxAsiaDone  = true;
+         gCtxAsiaPips  = (gAmdRangeHi - gAmdRangeLo) / PipSize();
+         gCtxAsiaRatio = 0.0;             // aucune moyenne 10 jours ne s'applique
+        }
+     }
+   else if(ShowAsiaStats && IntradayTF())
      {
       double asiaHi = 0.0, asiaLo = 0.0;
       gCtxAsiaDone  = (SecondsOfDay(BeninTime()) >= HHMMToSeconds(AsiaEnd));
@@ -1632,6 +1687,7 @@ void UpdatePanel()
    bool asiaBlocked = (!TradeAsia && activeSession == "ASIE");
 
    FDK_Amd amd;
+   amd.rangeHi = gAmdRangeHi; amd.rangeLo = gAmdRangeLo; amd.rangeBars = gAmdRangeBars;
    amd.side = gAmdSide; amd.ext = gAmdExt; amd.level = gAmdLevel;
    amd.confirmed = gAmdConfirmed; amd.dir = gAmdDir;
 
@@ -1750,7 +1806,23 @@ void UpdatePanel()
          SetPanelLine(line++, "  pas de confirmation", clrGray);
      }
 
-   if(ShowAsiaStats && asiaValid)
+   if(Profil == FDK_PROFIL_CONTINU)
+     {
+      if(asiaValid)
+        {
+         SetPanelLine(line++, StringFormat("Conso: %d pips  (%d bougies)",
+                      (int)MathRound(asiaPips), gAmdRangeBars), clrSilver);
+         if(gAmdSide > 0)
+            SetPanelLine(line++, "  balayage par le haut", clrYellow);
+         else if(gAmdSide < 0)
+            SetPanelLine(line++, "  balayage par le bas", clrYellow);
+         else
+            SetPanelLine(line++, "  pas encore de balayage", clrGray);
+        }
+      else
+         SetPanelLine(line++, "Conso: aucune plage reperee", clrGray);
+     }
+   else if(ShowAsiaStats && asiaValid)
      {
       if(asiaRatio > 0.0)
          SetPanelLine(line++, StringFormat("Asie: %d pips  (x%.2f moy %dj)",
