@@ -63,6 +63,7 @@ input bool   AlerteSonore     = true;  // Fenêtre Alert() + son
 input bool   AlertePush       = true;  // Notification sur le téléphone (MetaQuotes ID)
 input int    RappelSecondes   = 20;    // Intervalle entre deux rappels
 input int    SecondesCritique = 105;   // Dernière sommation avant les 120 s
+input int    PreavisClotureMin = 15;   // Préavis avant l'heure de clôture (minutes)
 
 input group "=== Affichage et journal ==="
 input bool   AfficherPanneau = true;
@@ -100,6 +101,14 @@ bool     gSuiviCritique[MAX_SUIVI];
 bool     gSuiviViole[MAX_SUIVI];
 int      gSuiviN = 0;
 string   gCompteARebours = "";
+
+//--- Seuils de perte déjà criés aujourd'hui, pour ne hurler qu'une fois
+//--- par palier franchi. Remis à zéro à la bascule de minuit UTC.
+bool     gPerteCriee[4];      // 0 alerte, 1 arret, 2 urgence, 3 limite dure
+bool     gPlancherCrie = false;
+datetime gDernierRappelPerte = 0;
+int      gPreavisCrie  = 0;   // 0 aucun, 1 preavis, 2 cinq min, 3 une min, 4 depassee
+string   gCompteCloture = "";
 
 //--- Anti-répétition : un refus qui revient toutes les deux secondes
 //--- écrivait soixante lignes identiques par minute dans le journal.
@@ -482,6 +491,112 @@ void VeillerStops()
   }
 
 //+------------------------------------------------------------------+
+//| Alarme 2 — la perte de la journée.                                |
+//|                                                                   |
+//| Quatre paliers, criés une fois chacun. Quand plusieurs sont        |
+//| franchis d'un coup — un gros mouvement contre une position — on    |
+//| ne crie que le plus haut et on marque les autres comme passés,     |
+//| sinon l'opérateur reçoit quatre fenêtres à empiler avant de        |
+//| pouvoir agir.                                                      |
+//+------------------------------------------------------------------+
+void VeillerPerte()
+  {
+   double eq    = AccountInfoDouble(ACCOUNT_EQUITY);
+   double perte = gEquityDebut - eq;
+   double marge = eq - gPlancher;
+
+   // Le plancher d'abord : c'est le seuil qui consomme un cycle sur trois.
+   if(marge <= gRisque * 2.0 && !gPlancherCrie)
+     {
+      gPlancherCrie = true;
+      Crier("PLANCHER PROCHE",
+            StringFormat("%.2f USD avant %.2f. Ferme tout et arrete la journee.",
+                         marge, gPlancher), true);
+      Noter("ALERTE_PLANCHER", StringFormat("marge %.2f USD", marge));
+     }
+
+   int niveau = -1;
+   if(perte >= gPerteMax)      niveau = 3;
+   else if(perte >= gUrgence)  niveau = 2;
+   else if(perte >= gArret)    niveau = 1;
+   else if(perte >= gAlerte)   niveau = 0;
+   if(niveau < 0)
+      return;
+
+   string titres[4] = {"ALERTE PERTE", "ARRET DU JOUR", "URGENCE", "LIMITE JOURNALIERE"};
+   double seuils[4];
+   seuils[0] = gAlerte; seuils[1] = gArret; seuils[2] = gUrgence; seuils[3] = gPerteMax;
+
+   for(int i = 0; i <= niveau; i++)
+     {
+      if(gPerteCriee[i]) continue;
+      gPerteCriee[i] = true;
+      if(i < niveau) continue;                 // marqué, mais pas crié
+      string corps = StringFormat("perte du jour %.2f USD (seuil %.2f). %d position(s) ouverte(s).",
+                                  perte, seuils[i], NbPositions());
+      Crier(titres[i], corps, i >= 1);
+      Noter(i >= 3 ? "VIOLATION_REGLE_02" : "ALERTE_PERTE", corps);
+      gDernierRappelPerte = TimeCurrent();
+     }
+
+   // Tant qu'on reste au-dessus de l'arrêt, on rappelle.
+   if(niveau >= 1 && TimeCurrent() - gDernierRappelPerte >= RappelSecondes
+      && NbPositions() > 0)
+     {
+      gDernierRappelPerte = TimeCurrent();
+      Crier("journee a arreter",
+            StringFormat("perte %.2f USD, %d position(s) encore ouverte(s)",
+                         perte, NbPositions()), false);
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Alarme 3 — l'heure de clôture.                                    |
+//|                                                                   |
+//| C'est l'erreur n°1 du protocole : la position oubliee pendant la   |
+//| nuit. Le preavis part quinze minutes avant, puis se resserre.      |
+//+------------------------------------------------------------------+
+void VeillerCloture()
+  {
+   gCompteCloture = "";
+   if(!ClotureAvantBascule || NbPositions() == 0)
+     {
+      gPreavisCrie = 0;
+      return;
+     }
+
+   int sec     = (int)(TimeGMT() % 86400);
+   int cible   = HeureClotureUTC * 3600;
+   int restant = cible - sec;
+
+   int niveau = 0;
+   if(restant <= 0)             niveau = 4;
+   else if(restant <= 60)       niveau = 3;
+   else if(restant <= 300)      niveau = 2;
+   else if(restant <= PreavisClotureMin * 60) niveau = 1;
+   if(niveau == 0)
+      return;
+
+   gCompteCloture = (restant > 0)
+      ? StringFormat("cloture dans %d min %02d s", restant / 60, restant % 60)
+      : "HEURE DE CLOTURE DEPASSEE";
+
+   if(niveau <= gPreavisCrie)
+      return;
+   gPreavisCrie = niveau;
+
+   string corps = (restant > 0)
+      ? StringFormat("%d position(s) ouverte(s), cloture dans %d min %02d s",
+                     NbPositions(), restant / 60, restant % 60)
+      : StringFormat("%d position(s) encore ouverte(s) apres l'heure de cloture",
+                     NbPositions());
+   string titres[5] = {"", "PREAVIS DE CLOTURE", "CLOTURE DANS 5 MIN",
+                       "CLOTURE DANS 1 MIN", "FERME MAINTENANT"};
+   Crier(titres[niveau], corps, niveau >= 3);
+   Noter("ALERTE_CLOTURE", corps);
+  }
+
+//+------------------------------------------------------------------+
 void Ligne(const int idx, const string texte, const color clr)
   {
    string nom = PFX + IntegerToString(idx);
@@ -513,6 +628,8 @@ void Panneau()
    Ligne(l++, "GARDE-FOU  " + _Symbol, clrWhite);
    if(gCompteARebours != "")
       Ligne(l++, ">> " + gCompteARebours, clrRed);
+   if(gCompteCloture != "")
+      Ligne(l++, ">> " + gCompteCloture, clrOrange);
    Ligne(l++, StringFormat("solde initial %10.2f", gSolde), clrSilver);
    Ligne(l++, StringFormat("plancher      %10.2f", gPlancher), clrSilver);
    Ligne(l++, StringFormat("equity        %10.2f", eq), clrSilver);
@@ -614,6 +731,8 @@ void Surveiller()
       gJourUTC = jour;
       gEquityDebut = AccountInfoDouble(ACCOUNT_EQUITY);
       gBloque = false; gMotif = "";
+      for(int i = 0; i < 4; i++) gPerteCriee[i] = false;
+      gPlancherCrie = false; gPreavisCrie = 0; gDernierRappelPerte = 0;
       RelireMoyenneLots();
       string note = ""; double lot = 0.0, stop = 0.0;
       if(CalculerLotDuJour(lot, stop, note))
@@ -639,6 +758,8 @@ void Surveiller()
    if(RaisonBlocageTrading() == "")
       PoserStops();
    VeillerStops();
+   VeillerPerte();
+   VeillerCloture();
 
    if(eq <= gPlancher + gRisque && NbPositions() > 0)
      {
