@@ -1,0 +1,51 @@
+Faisabilite des symboles Bridge sur un compte de 2500 $
+=======================================================
+Mesure du 03/10/2026. Specifications lues sur le compte demo 7930330
+(fichiers FDK_<symbole>_spec.csv), ATR(14) M15 recalcule par lissage de
+Wilder sur l'export M15 de chaque symbole, releve a 00:00 UTC comme le
+fait FDK_Garde a la bascule du jour.
+
+Regle appliquee : risque par trade 0,5 % = 12,50 $, stop a 1,5 x ATR
+plancher au stops_level du courtier, lot arrondi au pas inferieur.
+
+symbole               lot min      pas   lot med    risque   jours  verdict
+---------------------------------------------------------------------------
+V 10 Idx.prop           0.500    0.010     2.030    12.47 $     268  OK
+V 100 Idx.prop          0.500    0.010     1.625    12.46 $     268  OK
+V 15 (1s) Idx.prop      0.200    0.010     0.520    12.38 $     268  OK
+V 25 Idx.prop           0.500    0.010     1.460    12.46 $     268  OK
+V 50 (1s) Idx.prop      0.005    0.001     0.007    11.71 $     269  OK
+V 50 Idx.prop           1.000    0.010    20.870    12.50 $     268  OK
+V 75 Idx.prop           0.001    0.001     3.674    12.50 $     268  OK
+V 25 (1s) Idx.prop      0.005    0.001     0.005    12.40 $     268  exclu, 47 % des jours
+V 30 Idx.prop           0.200    0.010     0.200    83.39 $     218  exclu, 100 % des jours
+
+« jours » = nombre de journees mesurees ; le verdict compte celles ou le
+lot calcule tombe sous le minimum negociable, auquel cas le minimum
+impose un risque superieur au plafond.
+
+Ce qui discrimine
+-----------------
+Ni la volatilite ni le prix : la granularite du lot minimum rapportee a
+la valeur du point. V 30 a un minimum de 0,2 lot pour un point a 0,001 :
+le plus petit trade possible risque 83 $ quel que soit le compte. V 25
+(1s) passe un jour sur deux, ce qui revient a ne pas passer.
+
+V 50 (1s) corrige une estimation anterieure
+-------------------------------------------
+Ce symbole n'avait pas ete mesure lors du premier tri (huit symboles). Il
+est utilisable : 0 jour sur 269 sous le minimum. Il faudrait un ATR de
+1667 pour casser le plafond, contre un median de 1101 et un maximum
+observe de 1510 sur neuf mois.
+
+L'exclusion de V 25 (1s) reposait auparavant sur un seul releve d'ATR
+(« le minimum force 12,53 $ »). La mesure sur l'historique complet la
+confirme mais la chiffre autrement : 47 % des jours, pas tous.
+
+Le pas de 0,001 sur V 50 (1s) coute un peu de budget a ce niveau de
+compte — le lot median de 0,007 n'utilise que 11,71 $ des 12,50
+disponibles. C'est l'arrondi vers le bas, il va dans le bon sens.
+
+Rappel : rien de tout ceci ne dit que la regle d'entree a un avantage.
+Voir synthetiques_deriv.txt. Ce tableau dit seulement quels symboles un
+compte de 2500 $ peut dimensionner sans violer le plafond de 0,5 %.
