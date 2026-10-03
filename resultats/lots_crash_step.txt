@@ -1,0 +1,77 @@
+C 300, C 600, STP 200, STP 300, STP 500 — lots et risque de queue
+=================================================================
+Mesure du 03/10/2026, exports Bridge du compte 7930330. Meme methode
+que lots_bridge_2500.txt : ATR(14) M15 lisse Wilder, releve a 00:00 UTC,
+stop a 1,5 x ATR plancher au stops_level, lot arrondi au pas inferieur,
+risque 0,5 % du solde.
+
+Lot a utiliser
+--------------
+symbole            lot 2500  lot 10k stop (pts)   risque   spread % du stop
+C 600 Idx.prop         0.65     2.63      63.15   12.31 $    0.64 $    5.2 %
+C 300 Idx.prop         0.68     2.74      18.21   12.38 $    0.76 $    6.2 %
+STP Idx 200.prop       0.29     1.19      14.00   12.18 $    0.17 $    1.4 %
+STP Idx 300.prop       1.97     7.91      21.05   12.44 $    0.18 $    1.4 %
+STP Idx 500.prop       0.03     0.14      35.31   10.59 $    0.15 $    1.4 %
+
+Les cinq ont un lot minimum de 0,010 et un pas de 0,010. Aucun ne tombe
+sous son minimum, ni sur 2 500 ni sur 10 000, sur 269 journees.
+
+Attention aux valeurs du tick, qui ne suivent pas le pas de cotation :
+  C 600      tick_value 0.0003 / tick_size 0.001   -> 0,30 $ par point et par lot
+  C 300      0.001 / 0.001                         -> 1,00 $
+  STP 200    0.30  / 0.10                          -> 3,00 $
+  STP 300    0.03  / 0.10                          -> 0,30 $
+  STP 500    1.00  / 0.10                          -> 10,00 $
+Un meme lot ne represente pas le meme risque d'un symbole a l'autre.
+
+Risque de queue — ce que le calcul de lot ne voit pas
+-----------------------------------------------------
+Excursion defavorable d'une bougie M15, exprimee en multiples de l'ATR
+qui la precede. Comptage sur 25 745 bougies (neuf mois).
+
+symbole            asym.  pire -  pire +  >3xATR bas  >3xATR haut
+C 600 Idx.prop     -1.19    5.94    1.47         187            0
+C 300 Idx.prop     -0.81    5.31    1.37          55            0
+STP Idx 200.prop   +0.01    2.95    3.19           0            1
+STP Idx 300.prop   -0.13    8.81    2.55           1            0
+STP Idx 500.prop   +0.01    2.96    2.79           0            0
+  (reperes)
+V 10 Idx.prop       0.00    4.30    2.87           1            0
+V 50 (1s) Idx.prop -0.01    2.75    2.74           0            0
+
+Les deux C sont asymetriques et le sont systematiquement : 187 et 55
+bougies au-dela de 3 x ATR vers le bas, zero vers le haut. C'est le
+mecanisme du crash, pas un accident d'echantillon. Un stop a 1,5 x ATR
+sur un achat peut etre traverse d'un facteur 4 : sur 2 500 le trade de
+12,50 devient 49 USD, soit 40 % de la marge totale de drawdown.
+
+STP 300 affiche la pire bougie de tout le jeu (8,8 x ATR le 05/02/2026)
+mais une seule, et rien d'autre au-dessus de 2,9. C'est un evenement
+isole, pas une propriete de l'instrument — a ne pas confondre avec les
+deux C.
+
+STP 200 et STP 500 sont les instruments les plus sages mesures a ce
+jour, plus sages que V 50 (1s) : aucune bougie au-dela de 3 x ATR dans
+un sens ni dans l'autre, asymetrie nulle.
+
+Consistance par lotage
+----------------------
+Amplitude du lot recommande sur 269 jours, compte de 2 500 :
+  C 600      0.48 -> 0.85   rapport 1.77   OK
+  C 300      0.38 -> 1.31   rapport 3.45   HORS BANDE
+  STP 200    0.24 -> 0.35   rapport 1.46   OK
+  STP 300    1.29 -> 2.42   rapport 1.88   OK
+  STP 500    0.03 -> 0.04   rapport 1.33   OK
+
+Le dimensionnement par l'ATR sur C 300 sort de la bande 0,5x-2x de la
+regle de consistance. FDK_Garde borne deja a 0,65x-1,55x de la moyenne
+courante et elargit le stop a la place, donc le cas est couvert — mais
+pas si le lot est saisi a la main.
+
+STP 500 a un pas de 0,010 pour un lot de 0,03 : trois crans seulement.
+Le risque median tombe a 10,59 au lieu de 12,50, et un cran de plus ou
+de moins change le risque d'un tiers.
+
+Rien ici ne dit que la regle d'entree a un avantage sur ces series.
+Aucune mesure directionnelle n'a ete faite sur les C ni sur les STP.
